@@ -1,0 +1,29 @@
+diff -ru inotify-tools-3.14-orig/libinotifytools/src/inotifytools.c inotify-tools-3.14/libinotifytools/src/inotifytools.c
+--- inotify-tools-3.14-orig/libinotifytools/src/inotifytools.c
++++ inotify-tools-3.14/libinotifytools/src/inotifytools.c
+@@ -150,7 +150,7 @@
+ static char* timefmt = 0;
+ static regex_t* regex = 0;
+ 
+-int isdir( char const * path );
++static int isdir( char const * path );
+ void record_stats( struct inotify_event const * event );
+ int onestr_to_event(char const * event);
+ 
+@@ -193,6 +193,7 @@
+  *
+  * @param  mesg  A human-readable error message shown if assertion fails.
+  */
++static
+ void _niceassert( long cond, int line, char const * file, char const * condstr,
+                   char const * mesg ) {
+ 	if ( cond ) return;
+@@ -1594,7 +1595,7 @@
+ /**
+  * @internal
+  */
+-int isdir( char const * path ) {
++static int isdir( char const * path ) {
+ 	static struct stat64 my_stat;
+ 
+ 	if ( -1 == lstat64( path, &my_stat ) ) {

@@ -1,5 +1,5 @@
 Open Source Software used in **Parrot Mambo**.  
-Firmware version: **1.0.2**  
+Firmware version: **1.0.8**  
 Unless stated otherwise, later versions of the firmware
 use these same software modules.
 
@@ -15,6 +15,7 @@ You can download Open Source Archives from following table:
 |GPL|[busybox](sources/busybox-unknown)
 |GPL|[yavta](sources/yavta-unknown)
 |GPL2|[e2fsprogs](sources/e2fsprogs-1.42.11)
+|GPL2|[inotify-tools](sources/inotify-tools-3.14)
 |GPL2|[linux](sources/linux-unknown)
 |GPL2|[util-linux-ng](sources/util-linux-ng-2.26)
 |GPL3|[dosfstools](sources/dosfstools-3.0.26)

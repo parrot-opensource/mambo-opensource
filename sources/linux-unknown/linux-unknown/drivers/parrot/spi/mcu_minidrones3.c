@@ -615,7 +615,7 @@ static int send_firmware(struct mcu_minidrones3_data *drv_data,
 		 "Check all bytes (please wait) ...\n");
 	for (byte = 0; byte < fw_size && bytes_diffs == 0; byte++) {
 		if ((byte+1)%32 == 0)
-			dev_warn(&drv_data->spi->dev, "Fw: checked page %d/%d\n",
+			dev_info(&drv_data->spi->dev, "Fw: checked page %d/%d\n",
 				 (byte+1)/32-1, fw_size/32);
 		current_value = read_fw_byte(drv_data, byte);
 		if (current_value != fw_data[byte]) {

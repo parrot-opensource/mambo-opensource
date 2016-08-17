@@ -1054,6 +1054,9 @@ static void uvc_video_complete(struct urb *urb)
 	if ((ret = usb_submit_urb(urb, GFP_ATOMIC)) < 0) {
 		uvc_printk(KERN_ERR, "Failed to resubmit video URB (%d).\n",
 				ret);
+		if (ret == -ENODEV) {
+			uvc_queue_cancel(queue, 1);
+		}
 	}
 }
 

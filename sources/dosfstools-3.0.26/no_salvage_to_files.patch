@@ -1,0 +1,31 @@
+Index: dosfstools/src/fsck.fat.c
+===================================================================
+--- dosfstools.orig/src/fsck.fat.c
++++ dosfstools/src/fsck.fat.c
+@@ -59,6 +59,7 @@ static void usage(char *name)
+ 	    DEFAULT_DOS_CODEPAGE);
+     fprintf(stderr, "  -d path  drop that file\n");
+     fprintf(stderr, "  -f       salvage unused chains to files\n");
++    fprintf(stderr, "  -F       do not salvage unused chains to files\n");
+     fprintf(stderr, "  -l       list path names\n");
+     fprintf(stderr,
+ 	    "  -n       no-op, check non-interactively without changing\n");
+@@ -112,7 +113,7 @@ int main(int argc, char **argv)
+     interactive = 1;
+     check_atari();
+ 
+-    while ((c = getopt(argc, argv, "Aac:d:bflnprtu:vVwy")) != EOF)
++    while ((c = getopt(argc, argv, "Aac:d:bfFlnprtu:vVwy")) != EOF)
+ 	switch (c) {
+ 	case 'A':		/* toggle Atari format */
+ 	    atari_format = !atari_format;
+@@ -138,6 +139,9 @@ int main(int argc, char **argv)
+ 	case 'f':
+ 	    salvage_files = 1;
+ 	    break;
++	case 'F':
++	    salvage_files = 0;
++	    break;
+ 	case 'l':
+ 	    list = 1;
+ 	    break;
