@@ -1,0 +1,8 @@
+config ACPOWER_PARROT
+    tristate "PARROT AC power driver"
+	depends on ARM && (ARCH_PARROT || ARCH_PARROT6 || VERSATILE_PARROT6)
+	select POWER_SUPPLY
+	help
+        This is a simple power supply driver for targets having no battery.
+		Select Parrot AC power supply driver.  
+

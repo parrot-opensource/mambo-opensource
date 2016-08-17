@@ -1,0 +1,23 @@
+#
+# Pressure drivers
+#
+# When adding new entries keep the list in alphabetical order
+
+menu "ST Pressure sensors"
+
+config PARROT_ST22HB
+	tristate "ST 22 HB pressure sensor driver"
+	depends on I2C && SYSFS
+	help
+	  Say yes here to build support for the ST22HB
+	  pressure sensor connected via I2C.
+
+config PARROT_ST22HB_USE_THREADED_INTERRUPTS
+	bool "Use threaded interrupts to trigger i2c readings"
+        depends on PARROT_ST22HB
+	default y
+	help
+	  Use threaded interrupts to trigger i2c readings.
+	  Say no here if you want to use delayed workqueues as implemented in
+	  the original driver.
+endmenu

@@ -1,0 +1,24 @@
+config I2CM_PARROT
+    tristate "PARROT I2C master driver"
+	depends on ARM && (ARCH_PARROT || ARCH_PARROT6 || VERSATILE_PARROT6)
+	select I2C
+	help
+        Select Parrot I2C master driver.
+
+config RTC_DRV_P6MU
+	tristate "P6MU rtc"
+	depends on ARCH_AT91RM9200 || ARCH_AT91SAM9RL || ARCH_PARROT
+	depends on RTC_CLASS
+	depends on I2CM_PARROT
+	select RTC_DRV_AT91RM9200
+	help
+	  Driver for the internal RTC (Realtime Clock) module found on
+	  P6MU.
+
+config PARROT_SMSC_USB82514_USB_HUB
+	bool "SMSC USB82514 USB HUB"
+	depends on I2C
+	help
+		Automotive Grade USB 2.0 Hi-Speed 4-Port Hub
+
+

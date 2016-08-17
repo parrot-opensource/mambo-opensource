@@ -1,0 +1,59 @@
+Spécification lcd multiplan :
+
+== /dev/fb0 ==
+ - interface standard
+ - gère la configuration des timings
+ - support du double buffering (pan que sur Y)
+ - fb_blank
+ - fb_ioctl
+   * attente vblank (FBIOPAN_DISPLAY)
+   * compteur frame (FBIOGET_VBLANK)
+   * P6FB_(GET/SET)_RGB_CTL : couleur de fond unique (UNFILL) ou brightness (BRIGHTNESS) (peut changer l'état de fb_blank)
+   * P6FB_GET_FBINFO : recupère l'adresse physique du fb
+
+== /dev/fb1 ==
+== /dev/fb2 ==
+ - double buffering (pan que sur Y)
+ - FBIOPUT_VSCREENINFO :
+   * pas de gestion des timing (affiche ceux du fb0)
+   * sinfo.xres, sinfo.yres : taille de la fenêtre (doit être dans la fb0) [1]
+   * sinfo.xoffset sinfo.yoffset sinfo.xres_virtual sinfo.yres_virtual (pan)
+   * sinfo.nonstd (__u32) : color format /* != 0 Non standard pixel format */
+     + YUV420 (YVU420 )
+ - fb_blank blank mode désactive le plan (peut changer l'état de P6FB_SETUP_PLANE
+ - fb_ioctl
+   * attente vblank (FBIOPAN_DISPLAY)
+   * compteur frame (FBIOGET_VBLANK)
+   * configuration du plan P6FB_QUERY_PLANE/P6FB_SETUP_PLANE :
+     + pinfo.pos_x, pinfo.pos_y : position du plan
+     + pinfo.scale : zoom (0, 1, 2) (meme valeur que le registre DSx)
+     + pinfo.osdmode(none, plane, pixel[2] [3])
+       . pinfo.osdplane (si mode plane) [0,0xff] valeur alpha
+   * P6FB_(S|G)ET_YCC_TO_RGB : change les coef de conversion ycc2rgb (meme valeur que les registres YCCXTORGB)
+   * P6FB_GET_FBINFO : recupère l'adresse physique du fb
+
+La configuration initiale du lcd est fait par le code spécifique à la plateforme :
+il donne les caractéristique de l'écran (timming, ...), ainsi que les plages x, y freq, bpp possible.
+Il peut aussi spécifier la taille à allouer par plan. Si rien n'est fait la taille alloué est :
+max_y * max_x * max_bbp / 8 * 2
+
+[1] PB : si on change la taille de fb0, mais devrait pas arriver chez nous : un écran lcd a une taille fixe
+[2]
+taille buffer :
++++  rgb24 + osd	h*w*(3+1)								32
+ +   rgb24			h*w*4									32
+     rgb16 + osd	h*w*(2+1) -> h*w*3						16 (+8) = 24
+     ycc420 + osd	h*w*(1+1/4+1/4+1) -> h*w*5/2			8(+4+8) = 20
+ -   rgb16			h*w*2									16
+---  ycc420			h*w*(1+1/4+1/4) -> h*w*3/2				8(+4) = 12
+CCL : en allouant la taille pour rgb24, on peut faire tenir toutes les configs
+dans le buffer. On peut proposer de mettre le buffer osd juste après le buffer vidéo. Dans le cas du mode pan (res virtuel, le cas ce fait comme pour le buffer video)
+[3]
+offset des composantes
+type                 rgb/Y(bpp)       Cb(bpp)      Cr(bpp)       alpha(bpp)
+rgb24+osd                0(4)                                    0
+rgb24                    0(3(+1))
+rgb16+osd                0(2)                                    h*w*2(1)
+ycc420 + osd             0(1)         h*w(1/4)      h*w*5/4(1/4) h*w*6/4(1)
+rgb16                    0(2)
+ycc420                   0(1)         h*w(1/4)      h*w*5/4(1/4)

@@ -1,0 +1,11 @@
+config SPI_PARROT6
+    tristate "Parrot6 SPI master driver"
+	depends on ARM && SPI && (ARCH_PARROT6 || VERSATILE_PARROT6)
+	help
+        Select Parrot6 SPI master driver.
+
+config SPI_MCU_MINIDRONES3
+    tristate "Parrot6 minidrones3 MCU SPI driver"
+	depends on SPI_PARROT6
+	help
+        Select Parrot6 minidrones3 MCU SPI driver.

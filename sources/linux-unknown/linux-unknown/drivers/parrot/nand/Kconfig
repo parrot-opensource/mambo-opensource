@@ -1,0 +1,46 @@
+config MTD_NAND_PARROT_ECC
+	bool "NAND PARROT ECC support"
+	depends on MTD_NAND
+	help
+	  Use NAND parrot ecc with optimised assembly version for arm.
+
+config MTD_NAND_P5P
+	tristate "NAND support for P5P"
+	depends on MTD_NAND && MACH_PARROT_P5
+	help
+	 Use NAND flash attached to the P5P
+
+config MTD_NAND_ONFI
+	tristate "ONFI compliant NAND support"
+	depends on MTD_NAND
+    select CRC16
+	help
+	 Enable support for ONFI compliant NAND devices configuration.
+
+config MTD_PARROT_PARTS
+	bool "Parrot command line partition table parsing"
+	depends on MTD_PARTITIONS = "y" && MTD = "y"
+	---help---
+	  Allow generic configuration of the MTD partition tables via the kernel
+	  command line. Multiple flash resources are supported for hardware where
+	  different kinds of flash memory are available.
+
+	  You will still need the parsing functions to be called by the driver
+	  for your particular device. It won't happen automatically.
+
+config MTD_NAND_BA315
+	tristate "NAND support for Barco-Silex BA315"
+	depends on MTD_NAND && (ARCH_PARROT6 || VERSATILE_PARROT6)
+    select P6_NANDMC
+    select MTD_NAND_ONFI
+    select MTD_PARROT_PARTS
+	help
+	 Use NAND flash attached to the P6
+
+config MTD_TESTS
+	tristate "MTD tests support"
+	depends on m
+	help
+	  This option includes various MTD tests into compilation. The tests
+	  should normally be compiled as kernel modules. The modules perform
+	  various checks and verifications when loaded.

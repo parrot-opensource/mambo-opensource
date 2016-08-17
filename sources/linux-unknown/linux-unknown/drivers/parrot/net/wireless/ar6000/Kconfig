@@ -1,0 +1,8 @@
+config AR6000_WLAN
+        tristate "AR6000 wireless networking over SDIO"
+	depends on MMC
+        select WIRELESS_EXT
+        default n
+        help
+          good luck.
+

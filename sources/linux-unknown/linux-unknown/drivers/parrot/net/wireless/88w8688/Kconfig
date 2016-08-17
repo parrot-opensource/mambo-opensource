@@ -1,0 +1,11 @@
+menuconfig 88W8688
+        tristate "Marvell 88W8688 wireless driver over SDIO"
+	depends on MMC
+        default n
+        help
+          If you have a Marvel chip on your board you should say Y.
+
+if 88W8688
+source "drivers/parrot/net/wireless/88w8688/wlan/Kconfig"
+source "drivers/parrot/net/wireless/88w8688/bt/Kconfig"
+endif

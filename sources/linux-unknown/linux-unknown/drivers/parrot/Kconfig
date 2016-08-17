@@ -1,0 +1,24 @@
+if ARCH_PARROT || ARCH_VERSATILE
+
+menu "Parrot drivers"
+source "drivers/parrot/serial/Kconfig"
+source "drivers/parrot/nand/Kconfig"
+source "drivers/parrot/video/Kconfig"
+source "drivers/parrot/i2c/Kconfig"
+source "drivers/parrot/p264/Kconfig"
+source "drivers/parrot/sound/p5p_aai/Kconfig"
+source "drivers/parrot/sound/p6_aai/Kconfig"
+source "drivers/parrot/power/Kconfig"
+source "drivers/parrot/spi/Kconfig"
+source "drivers/parrot/net/Kconfig"
+source "drivers/parrot/mmc/Kconfig"
+source "drivers/parrot/media/video/Kconfig"
+source "drivers/parrot/input/Kconfig"
+source "drivers/parrot/char/Kconfig"
+source "drivers/parrot/usb/serial/blackberry/Kconfig"
+source "drivers/parrot/ultra_sound/Kconfig"
+source "drivers/parrot/misc/Kconfig"
+source "drivers/parrot/pressure/Kconfig"
+endmenu
+
+endif

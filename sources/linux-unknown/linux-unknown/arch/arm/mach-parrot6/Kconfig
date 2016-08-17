@@ -1,0 +1,168 @@
+menu "Parrot6 machines"
+	depends on ARCH_PARROT6
+
+config ARCH_VARIANT_PARROT6
+	bool
+	default n
+
+config ARCH_VARIANT_PARROT6I
+	bool
+	default n
+
+config MACH_PARROT_P6DEV
+	bool "Parrot6 devboard"
+	select ARCH_VARIANT_PARROT6
+	default y
+	help
+		Say Y here if you are using a P6dev board.
+
+config MACH_PARROT_PARELIA
+	bool "Parrot parelia"
+	select ARCH_VARIANT_PARROT6
+	default n
+	help
+		Say Y here if you are using a parelia board.
+
+config MACH_PARROT_OKIA
+	bool "Parrot okia"
+	select MACH_PARROT_PARELIA
+	default n
+	help
+		Say Y here if you are using a okia board.
+
+config MACH_PARROT_RNB4
+	bool "Parrot RnB4"
+	select ARCH_VARIANT_PARROT6
+	default n
+	help
+		Say Y here if you are using a RnB4 board.
+
+config MACH_PARROT_MKI2
+	bool "Parrot Mki2"
+	select ARCH_VARIANT_PARROT6
+	default n
+	help
+		Say Y here if you are using a MKI2 board.
+
+config MACH_PARROT_MYKONOS
+	bool "Parrot mykonos"
+	select ARCH_VARIANT_PARROT6
+	default n
+	help
+		Say Y here if you are using a Mykonos board.
+
+config MACH_PARROT_FC6XXX
+	bool "Parrot FC6xxx"
+	select ARCH_VARIANT_PARROT6
+	default n
+	help
+		Say Y here if you are using a FC6xxx board.
+
+config MACH_PARROT_P6IDEV
+	bool "Parrot6i devboard"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a P6idev board.
+
+config MACH_PARROT_SIP6DEV
+	bool "Parrot6i sip6 devboard"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a SiP6dev board.
+
+config MACH_PARROT_FC6050
+	bool "Parrot FC6050W"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a FC6050 board.
+
+config MACH_PARROT_FC6050B
+	bool "Parrot FC6050B"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a FC6050 board.
+
+config MACH_PARROT_DT1310
+	bool "Parrot dt1310"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a dt1310 board.
+
+config MACH_PARROT_JPSUMO
+	bool "Parrot jumping sumo"
+	select ARCH_VARIANT_PARROT6I
+	select WIRELESS_EXT     # needed for Broadcom BCM43526 driver
+	select WEXT_PRIV
+	select WEXT_SPY
+	default n
+	help
+		Say Y here if you are using a jumping sumo board.
+
+config MACH_PARROT_JPSUMO_EVO
+	bool "Parrot jumping sumo EVO"
+	select ARCH_VARIANT_PARROT6I
+	select MACH_PARROT_JPSUMO
+	default n
+	help
+		Say Y here if you are using a jumping sumo EVO board.
+
+config MACH_PARROT_JPSUMO3
+	bool "Parrot jumping sumo3"
+	select ARCH_VARIANT_PARROT6I
+	select MACH_PARROT_JPSUMO
+	default n
+	help
+		Say Y here if you are using a jumping sumo 3 board.
+
+config MACH_PARROT_DELOS
+	bool "Parrot delos"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a delos board.
+
+config MACH_PARROT_DELOS_EVO
+	bool "Parrot delos EVO"
+	select ARCH_VARIANT_PARROT6I
+	select MACH_PARROT_DELOS
+	default n
+	help
+		Say Y here if you are using a delos EVO board.
+
+config MACH_PARROT_DELOS3
+	bool "Parrot delos3"
+	select ARCH_VARIANT_PARROT6I
+	select MACH_PARROT_DELOS
+	default n
+	help
+		Say Y here if you are using a delos3  board.
+
+config MACH_PARROT_WINGX
+	bool "Parrot WingX"
+	select ARCH_VARIANT_PARROT6I
+	select MACH_PARROT_DELOS
+	default n
+	help
+		Say Y here if you are using a WingX  board.
+
+config MACH_PARROT_POWERUP
+	bool "Parrot PowerUp"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a PowerUp board.
+
+config MACH_PARROT_FC6000P
+	bool "Parrot FC6000P"
+	select ARCH_VARIANT_PARROT6I
+	default n
+	help
+		Say Y here if you are using a FC6000P board.
+
+
+endmenu

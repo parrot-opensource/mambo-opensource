@@ -1,0 +1,4 @@
+config DYNAMIC_PINMUX
+	depends on ARCH_PARROT6
+	tristate "Dynamic pinmux"
+	default n

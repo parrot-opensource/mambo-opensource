@@ -1,0 +1,31 @@
+config 88W8688_WLAN
+	tristate "88W8688 Wireless driver"
+	depends on 88W8688 && WIRELESS
+	select WIRELESS_EXT
+	select WEXT_PRIV
+	select WEXT_SPY
+	help
+		Marvell Wireless driver
+
+config 88W8688_WLAN_DEBUG
+	bool "88W8688 debugging"
+	depends on 88W8688_WLAN != n
+	default n
+	help
+	  This is an option for use by developers; most people should
+	  say N here.  This enables driver debugging.
+
+config 88W8688_WLAN_PROC_DEBUG
+	bool "proc debug"
+	depends on 88W8688_WLAN != n && PROC_FS
+	default y
+
+config 88W8688_WLAN_MFG_CMD_SUPPORT
+	bool "Manufacturing firmware support"
+	depends on 88W8688_WLAN != n
+	default y
+
+config 88W8688_WLAN_REASSOCIATION
+	bool "Re-association in driver"
+	depends on 88W8688_WLAN != n
+	default y

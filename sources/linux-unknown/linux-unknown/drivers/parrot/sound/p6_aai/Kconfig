@@ -1,0 +1,31 @@
+
+config AAI_PARROT6
+	tristate "Parrot6 AAI"
+	depends on SND
+	depends on ARCH_PARROT6
+	select SND_PCM
+	select SND_HWDEP
+    select SND_DYNAMIC_MINORS
+    help
+        Parrot6 AAI Driver.
+        The driver uses ARM fast interrupts.
+        For this reason it has to be statically linked, and not embedded as a kernel object.
+
+config AAI_PARROT6_DEBUG
+	bool  "compile with -O0 option"
+	default n
+	depends on AAI_PARROT6
+
+config AAI_DBG_LEVEL
+	int  "activate debug messages"
+	default 0
+	depends on AAI_PARROT6
+   help
+      level 0 : no messages
+      level 1 : print importants, warning and error messages
+      level 2 : add info messages
+      level 3 : full verbose mode
+
+config AAI_IRQ_SHARED
+    bool
+    default n

@@ -1,0 +1,22 @@
+config KBD_PARROT6
+	tristate "PARROT6 Keyboard / Trackball support"
+	depends on  ARCH_PARROT6 && INPUT
+
+ ---help---
+
+config KBD_PARROT6_DEBUG
+	bool "debug"
+	depends on KBD_PARROT6
+
+config RNB4_ROTATOR
+	tristate "Rnb4 rotator support"
+	select ARCH_PARROT_USE_ROTATOR
+	depends on  ARCH_PARROT6 && INPUT
+
+
+config P5_I2CS_INPUT
+	tristate "PARROT5 i2cs input"
+	depends on  ARCH_PARROT6 && INPUT
+
+ ---help---
+

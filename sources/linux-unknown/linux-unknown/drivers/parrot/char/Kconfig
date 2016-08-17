@@ -1,0 +1,13 @@
+config PARROT_DMAMEM
+	tristate "dmamem"
+	depends on  ARCH_PARROT6
+
+config PARROT_GPIO
+	tristate "gpio"
+	help
+		Allow userspace to drive gpio
+
+config PARROT_PWM
+	tristate "pwm"
+	help
+		Allow userspace to drive pwm

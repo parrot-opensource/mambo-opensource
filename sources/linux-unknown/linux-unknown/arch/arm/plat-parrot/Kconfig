@@ -1,0 +1,62 @@
+if ARCH_PARROT
+
+choice
+	prompt "Parrot ASIC generation"
+	default ARCH_PARROT5
+
+config ARCH_PARROT5
+	bool "Parrot5/5+"
+
+config ARCH_PARROT6
+	select ARCH_WANT_OPTIONAL_GPIOLIB
+	bool "Parrot6"
+
+endchoice
+
+config ARCH_PARROT_HR_TIMER
+	bool "use new timer (p5+/p6)"
+	default y
+	select GENERIC_TIME
+	select GENERIC_CLOCKEVENTS
+	help
+		This enable clockevent stuff
+
+config ARCH_PARROT_USE_ROTATOR
+	bool
+# "Enable rotator IP for one rotator"
+	help
+		This will reserve the 2 first gpio irq needed to be able to use the rotator IP
+	default n
+
+config DEBUG_PARROT_UART_DEBUG_UNCOMPRESS
+	bool "debug message during uncompress"
+	default n
+
+config DEBUG_PARROT_UART
+	int "low level debug uart number"
+	default 0
+	depends on DEBUG_LL || DEBUG_PARROT_UART_DEBUG_UNCOMPRESS
+	range 0 2 if ARCH_PARROT5
+	range 0 3 if ARCH_PARROT6
+	help
+		Choose the uart that will print low level debug trace
+	
+
+config OPROFILE_PARROT
+	bool "HR oprofile(p5+)"
+	default n
+	depends on OPROFILE
+	depends on ARCH_PARROT5 || ARCH_PARROT6
+	help
+		This allow to get a more accurate profiling, but will be more
+		intrusive.
+
+config OPROFILE_PARROT_HZ
+	int "profiling freq (in HZ)"
+	range 100 50000
+	default 10000
+	depends on OPROFILE_PARROT
+
+endif
+#put it outside in order it can be seen on versatile
+source "drivers/parrot/Kconfig"

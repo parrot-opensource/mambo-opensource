@@ -1,0 +1,15 @@
+
+config AAI_PARROT5P
+	tristate "Parrot5+ AAI"
+	depends on SND
+	depends on ARCH_PARROT5
+	select SND_PCM
+	select SND_HWDEP
+
+config AAI_PARROT5P_DEBUG
+	bool  "activate debug messages"
+	default n
+	depends on AAI_PARROT5P
+
+
+

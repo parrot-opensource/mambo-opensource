@@ -1,0 +1,23 @@
+config FB_PARROT6
+	tristate "PARROT6 LCD framebuffer support"
+	depends on FB && (ARCH_PARROT6 || VERSATILE_PARROT6)
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	---help---
+
+config FB_PARROT6_DEBUG
+	bool "debug"
+	depends on FB_PARROT6
+	
+config R61509V
+    tristate "R61509V Display driver support"
+	depends on ARM && SPI
+	select SPI_PARROT6
+	help
+	  If you have a R61509V Display chip on your board say Y.
+	  Otherwise, say N.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called r61509v.
+

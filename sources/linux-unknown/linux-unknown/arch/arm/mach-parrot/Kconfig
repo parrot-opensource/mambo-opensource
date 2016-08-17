@@ -1,0 +1,17 @@
+menu "Parrot5 machines"
+	depends on ARCH_PARROT5
+
+config MACH_PARROT_P5
+	bool "Support Parrot5/5+ platform"
+	default y
+	help
+	  Include support for the Parrot5/5+ platform.
+
+config MACH_CK5050P
+	bool "Support ck5050p platform"
+	default y
+	help
+	  Include support for the CK5050P(P5+) platform.
+
+
+endmenu

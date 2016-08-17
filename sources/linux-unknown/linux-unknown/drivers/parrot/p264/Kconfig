@@ -1,0 +1,4 @@
+config PARROT_P264_P6
+	tristate "p264_p6"
+	depends on  ARCH_PARROT6
+

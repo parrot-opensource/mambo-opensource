@@ -1,0 +1,29 @@
+The camera driver use v4l2 API http://v4l2spec.bytesex.org/spec-single/v4l2.html.
+
+The application should configure the camera with i2c before starting video
+capture.
+
+*** number of irq per line ***
+
+this can be configured with the module param lines_per_irq (generate an it each 2^lines_per_irq lines (range 0-7 default 7)
+Like other module params, you can select it on :
+- kernel command line "p6_camif.lines_per_irq"
+- insmod option "lines_per_irq"
+- sysfs "/sys/module/p6_camif/parameters/lines_per_irq
+
+
+*** special ioctl for partial frame ***
+
+#define PARTIAL_IOCTL _IOWR('V', BASE_VIDIOC_PRIVATE, struct v4l2_buffer)
+struct v4l2_buffer buf;
+ioctl (fd, PARTIAL_IOCTL, &buf);
+
+buf.index indicate the current buffer
+buf.length indicate the offset of the image that is capurated (in Y offset).
+The end of frame is indicated by buf.length == frame_size or buf.index changing.
+buf.index changing shouldn't happen if normal case.
+
+This ioctl is blocking until the next blockline irq.
+It is to the application to use a select on v4l2 desciptor before calling this ioctl to check if a full frame is not ready.
+
+See example in packages/utils/camera.

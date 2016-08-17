@@ -1,0 +1,5 @@
+config MMC_PARROT6
+    tristate "Parrot6 SDHCI driver"
+    	depends on ARM && MMC && MMC_SDHCI && (ARCH_PARROT6 || VERSATILE_PARROT6)
+	help
+	Parrot6 Arasan SDHCI driver support

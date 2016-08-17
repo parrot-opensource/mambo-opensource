@@ -1,0 +1,70 @@
+config SERIAL_PARROT5
+	bool "Parrot5/5+ serial port support"
+	depends on ARM && ARCH_PARROT
+	select SERIAL_CORE
+	help
+	  If you have a board based on Parrot5/5+ SoC you
+	  can enable its onboard serial port by enabling this option.
+
+          To compile this driver as a module, choose M here: the
+          module will be called parrot5-serial.
+
+config SERIAL_PARROT5_CONSOLE
+	bool "Console on Parrot5/5+ serial port"
+	depends on SERIAL_PARROT5
+	select SERIAL_CORE_CONSOLE
+	help
+	  Select this option if you want to use one of the Parrot5/5+ serial ports
+	  as console.
+
+config SERIAL_PARROT5_SNOOP
+	bool "Enable pattern matching on Parrot5/5+ serial port data"
+	default n
+	depends on SERIAL_PARROT5
+	help
+	  Select this option if you need to extract a pattern from serial port
+	  data. This can be used to trigger actions with a low latency.
+
+config SERIAL_DCC
+	bool "JTAG ICE/ICD DCC serial port emulation support"
+	depends on ARM
+	select SERIAL_CORE
+	help
+	  This selects serial port emulation driver for ICE/ICD JTAG debugger
+	  (e.g. Trace32) for ARM architecture. You should make an terminal with
+	  DCC(JTAG1) protocol.
+
+	  if unsure, say N.
+
+config SERIAL_DCC_IDLE_POLL
+	bool "Poll dcc io"
+	depends on SERIAL_DCC
+	help
+		Improve dcc speed on cpu with dcc irq
+
+config SERIAL_DCC_CONSOLE
+	bool "Support for console on JTAG ICE/ICD DCC"
+	depends on SERIAL_DCC
+	select SERIAL_CORE_CONSOLE
+	help
+	  Say Y here if you wish to use ICE/ICD JTAG DCC serial port emulation
+	  as the system console.
+
+	  if unsure, say N.
+
+config SERIAL_DCC_STDSERIAL
+	bool "Install JTAG ICE/ICD DCC as standard serial"
+	default y
+	depends on !SERIAL_8250 && SERIAL_DCC
+	help
+	  Say Y here if you want to install DCC driver as a normal serial port
+	  /dev/ttyS0 (major 4, minor 64). Otherwise, it appears as /dev/ttyJ0
+	  (major 204, minor 186) and can co-exist with other UARTs, such as
+	  8250/16C550 compatibles.
+
+config SERIAL_MAX3100_P6
+	tristate "MAX3100_P6 support"
+	depends on SPI
+	select SERIAL_CORE
+	help
+	  MAX3100 chip support with embeded P6/P6i SPI tweak

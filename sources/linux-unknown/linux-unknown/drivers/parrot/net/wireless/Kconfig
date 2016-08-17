@@ -1,0 +1,2 @@
+source "drivers/parrot/net/wireless/ar6000/Kconfig"
+source "drivers/parrot/net/wireless/88w8688/Kconfig"

@@ -1,0 +1,13 @@
+config 88W8688_BT
+	tristate "88W8688 Bluetooth driver"
+	depends on BT && 88W8688
+	help
+		Bluetooth 3.0 support
+
+config 88W8688_BT_DEBUG
+	bool "88W8688 debugging"
+	depends on 88W8688_BT != n
+	default n
+	help
+	  This is an option for use by developers; most people should
+	  say N here.  This enables driver debugging.

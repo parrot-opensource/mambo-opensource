@@ -1,0 +1,16 @@
+config CAMERA_PARROT
+	tristate "PARROT Camera Interface driver"
+	depends on VIDEO_DEV && HAS_DMA && (ARCH_PARROT6 || VERSATILE_PARROT6)
+	select SOC_CAMERA
+	select VIDEOBUF_DMA_CONTIG
+	---help---
+	  This is a v4l2 driver for the parrot6 Interface
+
+config PARROT6_CAMIF_CACHED
+	bool "cached buffer"
+	depends on CAMERA_PARROT
+	---help---
+	This will make v4l2 buffer cached. You need to invalidate buffer, before
+	sending back to buffer queue.
+	Say n unless you know what you are doing.
+
