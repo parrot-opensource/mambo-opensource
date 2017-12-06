@@ -1,5 +1,5 @@
 Open Source Software used in **Parrot Mambo**.  
-Firmware version: **2.6.6**  
+Firmware version: **2.6.11**  
 Unless stated otherwise, later versions of the firmware
 use these same software modules.
 

@@ -245,7 +245,8 @@ static int smsc82514_probe(struct i2c_client *client, const struct i2c_device_id
 
 	/* Initialize chip */
 	ret = smsc82514_init_client(client);
-
+	if (ret)
+		kfree(data);
 exit:
 	return ret;
 }
