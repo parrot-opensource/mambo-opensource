@@ -141,6 +141,10 @@ struct snd_card * __devinit aai_alsa_probe(struct platform_device *pdev)
      * alloc pcms table
      */
     aai->pcms = kmalloc(aai->pcms_cnt * sizeof(struct snd_pcm *), GFP_KERNEL);
+    if (aai->pcms == NULL) {
+        aai_err(&pdev->dev, "pcm alloc failed");
+        goto __nodev;
+    }
 
     /*
      * Initialize PCM streams
@@ -150,25 +154,20 @@ struct snd_card * __devinit aai_alsa_probe(struct platform_device *pdev)
         if ((err = aai_alsa_pcm_new(&pdev->dev, aai, idx)) < 0)
         {
             aai_err(&pdev->dev, "%s pcm %d init failed\n", __FUNCTION__, idx);
-            goto __nodev;
+            for (; idx > 0; idx--) {
+                snd_pcm_lib_preallocate_free_for_all(aai->pcms[idx]);
+            }
+            goto __pcminit;
         }
     }
     aai_dbg(&pdev->dev, "pcm streams initialization ok - %d streams\n", idx);
 
-    /*
-     * Register sound card for Alsa
-     */
     snd_card_set_dev(card, &pdev->dev);
-    err = snd_card_register(card);
-    if (err != 0)
-    {
-        aai_err(&pdev->dev,"card registration failed: err=%d\n", err);
-        goto __nodev;
-    }
-
     aai_info(&pdev->dev,"%s card initialized\n", card->longname);
     return card;
 
+__pcminit:
+    kfree(aai->pcms);
 __nodev:
     aai_err(&pdev->dev,"AAI card initialization failed \n");
     snd_card_free(card);
@@ -184,14 +183,16 @@ __nodev:
  */
 int __devexit aai_alsa_remove(struct snd_card *card)
 {
-    int ipcm;
     struct card_data_t *aai = card->private_data;
 
-    for (ipcm = 0; ipcm < aai->pcms_cnt; ipcm++)
-        snd_pcm_lib_preallocate_free_for_all(aai->pcms[ipcm]);
 
-    if (aai->pcms)
+    if (aai->pcms) {
+        int ipcm;
+        for (ipcm = 0; ipcm < aai->pcms_cnt; ipcm++)
+            snd_pcm_lib_preallocate_free_for_all(aai->pcms[ipcm]);
+
         kfree(aai->pcms);
+    }
 
     if (card)
         snd_card_free(card);

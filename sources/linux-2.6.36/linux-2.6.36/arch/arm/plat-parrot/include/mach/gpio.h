@@ -75,6 +75,32 @@ static inline int gpio_get_value(unsigned gpio)
 
 static inline void gpio_set_value(unsigned gpio, int value)
 {
+#ifdef CONFIG_HBRIDGE_SAFETY_HACK
+	extern int pwm0_output_bkp;
+	extern int pwm1_output_bkp;
+	if (gpio == 38) {
+		/* unknow or 0 */
+		if (pwm0_output_bkp != 1 && value) {
+			printk("trying to set gpio38 while pwm state %d (OE %d)\n", pwm0_output_bkp, gpio_get_value(42));
+			return;
+		}
+	}
+	if (gpio == 39) {
+		/* unknow or 0 */
+		if (pwm1_output_bkp != 1 && value) {
+			printk("trying to set gpio39 while pwm state %d (OE %d)\n", pwm1_output_bkp, gpio_get_value(42));
+			return;
+		}
+	}
+	if (gpio == 42) {
+		printk("changing OE %d\n", value);
+		if (value == 0 && (pwm0_output_bkp == -1 || pwm1_output_bkp == -1)) {
+			printk("trying to clear OE in undefined state\n");
+			return;
+		}
+	}
+
+#endif
 	__raw_writel((value)? 0xff : 0x00, PARROT_VA_GPIO+__ADDR(gpio));
 }
 

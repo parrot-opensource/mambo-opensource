@@ -1,0 +1,9 @@
+config JPSUMO_ADC
+	tristate "Parrot Jumping Sumo ADC driver"
+	depends on MACH_PARROT_JPSUMO || MACH_PARROT_JPSUMO_EVO || MACH_PARROT_JPSUMO3
+	select AAI_IRQ_SHARED
+	default n
+	help
+		Select Parrot6i AAI ADC driver with features specific to the
+		Jumping Sumo.
+

@@ -362,12 +362,29 @@ static struct resource p6_aai_resource[] = {
 	}
 };
 
+/* Ultrasound uses the same resources as AAI, must use a separate resource
+ * structure to prevent infinite iteration over resource list (typically when
+ * reading the contents of /proc/iomem).
+ */
+static struct resource p6_us_resource[] = {
+	[0] = {
+		.start  = PARROT6_AAI,
+		.end    = PARROT6_AAI+SZ_64K-1,
+		.flags  = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start  = IRQ_P6_AAI,
+		.end    = IRQ_P6_AAI,
+		.flags  = IORESOURCE_IRQ,
+	}
+};
+
 
 struct platform_device p6_us_device = {
 	.name		= "ultra_snd",
 	.id		= 0,
-	.num_resources	= ARRAY_SIZE(p6_aai_resource),
-	.resource	= p6_aai_resource,
+	.num_resources	= ARRAY_SIZE(p6_us_resource),
+	.resource	= p6_us_resource,
 	.dev = {
 		.platform_data = NULL,
 	},

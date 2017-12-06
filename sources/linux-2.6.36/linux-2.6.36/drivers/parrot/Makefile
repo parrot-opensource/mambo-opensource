@@ -15,6 +15,7 @@ obj-y += mmc/
 obj-y += input/
 obj-y += char/
 obj-y += ultra_sound/
+obj-y += jpsumo_adc/
 obj-y += misc/
 obj-y += pressure/
 

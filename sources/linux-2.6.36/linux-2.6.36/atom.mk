@@ -19,6 +19,7 @@ LINUX_EXPORTED_HEADERS := \
 	$(LOCAL_PATH)/drivers/parrot/char/dmamem_ioctl.h \
 	$(LOCAL_PATH)/drivers/parrot/char/pwm/pwm_ioctl.h \
 	$(LOCAL_PATH)/drivers/parrot/ultra_sound/ultra_snd.h \
+	$(LOCAL_PATH)/drivers/parrot/jpsumo_adc/jpsumo_adc.h \
 	$(LOCAL_PATH)/drivers/parrot/pressure/lps22hb.h \
 	$(LOCAL_PATH)/drivers/parrot/char/gpio2_ioctl.h \
 	$(LOCAL_PATH)/arch/arm/plat-parrot/include/mach/delos_hwrev.h \

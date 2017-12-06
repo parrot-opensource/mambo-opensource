@@ -49,7 +49,7 @@
 #include <mach/spi.h>
 #include <linux/spi/spi.h>
 #include <mach/aai.h>
-#include <mach/ultra_snd.h>
+#include <mach/jpsumo_adc.h>
 
 #include <media/soc_camera.h>
 #include <media/soc_camera_platform.h>
@@ -388,9 +388,37 @@ static __init int sysfs_jpsumo_init(void);
 static __init void jpsumo_sys_set_bit(u32 reg, u32 bit, u32 val);
 
 static struct parrot_aai_platform_data aai_platform_data;
-static struct parrot_ultra_snd_platform_data ultra_snd_platform_data = {
+static struct parrot_jsadc_platform_data jsadc_platform_data = {
 	.gpio_mux_vbat_jump = -1,
 	.gpio_mux_wheels = -1
+};
+
+/* ADC uses the same resources as AAI, but we must use a separate resource
+ * structure to prevent infinite iteration over resource list (typically when
+ * reading the contents of /proc/iomem).
+ */
+static struct resource jsadc_resource[] = {
+	[0] = {
+		.start  = PARROT6_AAI,
+		.end    = PARROT6_AAI+SZ_64K-1,
+		.flags  = IORESOURCE_MEM,
+	},
+	[1] = {
+		.start  = IRQ_P6_AAI,
+		.end    = IRQ_P6_AAI,
+		.flags  = IORESOURCE_IRQ,
+	}
+};
+
+
+static struct platform_device jsadc_device = {
+	.name		= "jpsumo_adc",
+	.id		= 0,
+	.num_resources	= ARRAY_SIZE(jsadc_resource),
+	.resource	= jsadc_resource,
+	.dev = {
+		.platform_data = &jsadc_platform_data,
+	},
 };
 
 typedef struct {
@@ -788,7 +816,7 @@ static struct platform_device *p6i_jpsumo_A2plus_devices[] = {
 	&p6_uart1_device,
 	&p6_nand_device,
 	&p6_aai_device,
-	&p6_us_device,
+	&jsadc_device,
 	&p6_i2cm0_device,
 	&p6i_usb0_device,
 	/* virtual device */
@@ -800,7 +828,7 @@ static struct platform_device *p6i_jpsumo_EVO_devices[] = {
 	&p6_uart1_device,
 	&p6_nand_device,
 	&p6_aai_device,
-	&p6_us_device,
+	&jsadc_device,
 	&p6_i2cm0_device,
 	&p6_sdhci0_device,
 	&p6i_usb0_device,
@@ -814,7 +842,7 @@ static struct platform_device *p6i_jpsumo_v3_devices[] = {
 	&p6_uart1_device,
 	&p6_nand_device,
 	&p6_aai_device,
-	&p6_us_device,
+	&jsadc_device,
 	&p6_i2cm0_device,
 	&p6_sdhci0_device,
 	&p6i_usb0_device,
@@ -1625,11 +1653,15 @@ static void __init jpsumo_init(jpsumo_type_t jpsumo_type)
 				(jumpingsumo_hsis_gpio->gpio_POWER_ON_OFF_on==1)?GPIOF_OUT_INIT_HIGH:GPIOF_OUT_INIT_LOW,
 				"POWER_ON_OFF", 0);
 
-	// Turn Off Jump H-Bridge : keep gpios as input.
+	// Turn Off Jump H-Bridge : Clear outputs to 0.
 	if (jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_1 >= 0)
-		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_1, GPIOF_IN, "JUMP_CTRL_1", 1);
+		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_1, GPIOF_OUT_INIT_LOW, "JUMP_CTRL_1", 1);
 	if (jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_2 >= 0)
-		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_2, GPIOF_IN, "JUMP_CTRL_2", 1);
+		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_JUMP_CTRL_2, GPIOF_OUT_INIT_LOW, "JUMP_CTRL_2", 1);
+
+	// JS : Turn Off PWM Generator
+	if (jumpingsumo_hsis_gpio->gpio_PWMGEN_nOE >= 0)
+		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_PWMGEN_nOE, GPIOF_OUT_INIT_HIGH, "PWMGEN_nOE", 0);
 
 	// JS : Turn Off and export RED LEDs
 	if (jumpingsumo_hsis_gpio->gpio_RED_LED_LEFT >= 0)
@@ -1642,10 +1674,6 @@ static void __init jpsumo_init(jpsumo_type_t jpsumo_type)
 		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_GREEN_LED_LEFT, GPIOF_OUT_INIT_LOW, "GREEN_LED_LEFT", 0);
 	if (jumpingsumo_hsis_gpio->gpio_GREEN_LED_RIGHT >= 0)
 		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_GREEN_LED_RIGHT, GPIOF_OUT_INIT_LOW, "GREEN_LED_RIGHT", 0);
-
-	// JS : Turn Off PWM Generator
-	if (jumpingsumo_hsis_gpio->gpio_PWMGEN_nOE >= 0)
-		p6i_export_gpio(jumpingsumo_hsis_gpio->gpio_PWMGEN_nOE, GPIOF_OUT_INIT_HIGH, "PWMGEN_nOE", 0);
 
 	// Turn Off LED IR:
 	if (jumpingsumo_hsis_gpio->gpio_LED_IR >= 0)
@@ -1693,18 +1721,18 @@ static void __init jpsumo_init(jpsumo_type_t jpsumo_type)
 	/* INIT AAI */
 	init_aai();
 
-	/* Init ultra sound */
+	/* Init ADC */
 	if (jumpingsumo_hsis_gpio->gpio_MUX_VBAT_JUMP >= 0) {
-		ultra_snd_platform_data.gpio_mux_vbat_jump = jumpingsumo_hsis_gpio->gpio_MUX_VBAT_JUMP;
-		p6i_export_gpio(ultra_snd_platform_data.gpio_mux_vbat_jump, GPIOF_OUT_INIT_LOW, "MUX_VBAT_JUMP", 0);
+		jsadc_platform_data.gpio_mux_vbat_jump = jumpingsumo_hsis_gpio->gpio_MUX_VBAT_JUMP;
+		p6i_export_gpio(jsadc_platform_data.gpio_mux_vbat_jump, GPIOF_OUT_INIT_LOW, "MUX_VBAT_JUMP", 0);
 	}
 
 	if (jumpingsumo_hsis_gpio->gpio_MUX_WHEELS >= 0) {
-		ultra_snd_platform_data.gpio_mux_wheels = jumpingsumo_hsis_gpio->gpio_MUX_WHEELS;
-		p6i_export_gpio(ultra_snd_platform_data.gpio_mux_wheels,    GPIOF_OUT_INIT_LOW, "MUX_WHEELS",    0);
+		jsadc_platform_data.gpio_mux_wheels = jumpingsumo_hsis_gpio->gpio_MUX_WHEELS;
+		p6i_export_gpio(jsadc_platform_data.gpio_mux_wheels,    GPIOF_OUT_INIT_LOW, "MUX_WHEELS",    0);
 	}
 
-	p6_us_device.dev.platform_data 			= &ultra_snd_platform_data;
+	jsadc_device.dev.platform_data = &jsadc_platform_data;
 
 	/* Detection of plug/unplug usb */
 	if (jumpingsumo_hsis_gpio->gpio_VBUS_DETECT >= 0) {

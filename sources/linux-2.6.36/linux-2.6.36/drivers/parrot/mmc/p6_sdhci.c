@@ -127,7 +127,6 @@ static int __devinit p6_sdhci_probe(struct platform_device *pdev)
 		ret = PTR_ERR(drv_data->clk);
 		goto no_clk;
 	}
-	clk_disable(drv_data->clk);
 	clk_enable(drv_data->clk);
 #endif
 

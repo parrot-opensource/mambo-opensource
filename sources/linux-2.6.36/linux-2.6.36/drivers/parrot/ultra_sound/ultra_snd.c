@@ -25,9 +25,11 @@
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
 #include <linux/semaphore.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/uaccess.h>
@@ -36,17 +38,32 @@
 
 #include <mach/gpio.h>
 #include <mach/gpio_parrot.h>
+#include <mach/dma-pl08x.h>
 #include <mach/regs-aai-p6.h>
 #include <mach/ultra_snd.h>
 
 #include "timer.h"
 #include "ultra_snd.h"
 
-enum monitor_mode {
-	JPSUMO_MONITOR_MOTORS,
-	JPSUMO_MONITOR_VBAT,
-	DELOS_MONITOR_TEMPERATURE
-};
+/* SPI base address */
+#define P6_SPI1_BAD	0xd00c0000
+#define SPI_CTRL	0x0000
+#define SPI_SPEED	0x0004
+#define SPI_STATUS	0x0008
+#define SPI_SIZE	0x000c
+#define SPI_THRES_RX	0x0010
+#define SPI_THRES_TX	0x0014
+#define SPI_DATA	0x0040
+
+#define aai_writel(_value_, _reg_)\
+	writel(_value_, _reg_ + u_snd.map)
+
+#define aai_readl(_reg_) readl(_reg_ + u_snd.map)
+
+#define spi_writel(_value_, _reg_)\
+	writel(_value_, _reg_ + spi_dev.map)
+
+#define spi_readl(_reg_) readl(_reg_ + spi_dev.map)
 
 /*
  * usnd_device is the struct which contains the informations needed\
@@ -79,40 +96,21 @@ struct usnd_device {
 	uint32_t			numirq;
 	uint32_t			mem_start;
 	uint32_t			mem_end;
-	uint64_t			cycles;
-	struct adc_data_t		adc_data;
 	uint16_t			vbat_value;
 	uint8_t                         temperature_adc_num;
 	uint16_t			temperature_value;
-	int				gpio_mux_vbat_jump;
-	int				gpio_mux_wheels;
 
 	struct completion		completion;
-	enum monitor_mode	        monitor_mode;
 	struct semaphore		adc_lock;
 };
 
 /*
  * define usnd_device.adc_status bit field
  */
-#define ADC_JS_ENABLE               0x01
-#define ADC_JS_50_RUN               0x02	/* ADC 0 ->vbat, jump;
-						   ADC 2 ->wheel */
-#define ADC_JS_8K_RUN               0x04	/* oversampled 8K mode */
 #define ADC_VBAT_ENABLE             0x08	/* Only ADC0 vbat enable */
 #define ADC_VBAT_USE_BAT_REG        0x10	/* Real battery mode */
 
 #define MAX_AAI_ADC_INDEX 8
-/*
- * mux for ADC 0 can be set on 2 positions:
- * 0 to read IJUMP
- * 1 to read VBAT
- */
-enum {
-	ADC_JS_MUX_VBAT,
-	ADC_JS_MUX_IJUMP
-};
-
 /*
  * spi_device is the used struct to store the SPI informations
  * @struct map: the spi mapped register
@@ -121,10 +119,18 @@ enum {
  * */
 
 struct spi_device {
-	struct clk	*clock;
-	uint8_t		*map;
-	uint8_t		len;
-	uint32_t	*adr;
+	struct clk		*clock;
+	uint8_t			*map;
+	uint8_t			len;
+	/* DMA-related data */
+	uint32_t		*dmabuf_cpu;
+	dma_addr_t		dmabuf_bus;
+	unsigned int		dmachan;
+	struct completion	dma_completion;
+	/* This mutex protects from performing more than one USND_PULSES or
+	 * USND_RAW ioctl at the same time.
+	 */
+	struct mutex		mut;
 };
 static struct spi_device spi_dev;
 
@@ -149,45 +155,6 @@ static struct usnd_device u_snd = {
 	.size	    = 0,
 	.adc_status = 0
 };
-
-static struct mem mem = {
-	.pin     = 0,
-	.pout    = 0,
-	.usr_ptr = 0,
-	.free    = SIZEMAX,
-};
-
-static struct timed_buf tb;
-
-static int mem_put(struct mem *V, int size)
-{
-	int old;
-	if (size < V->free) {
-		V->pin = (V->pin + size) % SIZEMAX;
-		V->free -= size;
-		return size;
-	} else {
-		V->pin = (V->pin + V->free) % SIZEMAX;
-		old = V->free;
-		V->free = 0;
-		return old;
-	};
-}
-
-static int mem_get(struct mem *V, int size)
-{
-	int old;
-	if (size < SIZEMAX - V->free) {
-		V->pout = (V->pout + size) % SIZEMAX;
-		V->free += size;
-		return size;
-	} else {
-		V->pout = (V->pout + SIZEMAX - V->free) % SIZEMAX;
-		old = SIZEMAX - V->free;
-		V->free = SIZEMAX;
-		return old;
-	};
-}
 
 static int ultra_snd_open(struct inode *inode, struct file *filp)
 {
@@ -217,61 +184,6 @@ static int ultra_snd_mmap(struct file *filep, struct vm_area_struct *vma)
 	return 0;
 }
 
-static int jpsumo_adc_get_data(struct usnd_device *usnd)
-{
-	int ret = 0;
-
-	ret = down_interruptible(&usnd->adc_lock);
-	if (ret < 0)
-		return ret;
-
-	/* reset gpio mux to read ijump on ADC 0 */
-	if (!gpio_is_valid(usnd->gpio_mux_vbat_jump)) {
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	gpio_direction_output(u_snd.gpio_mux_vbat_jump, ADC_JS_MUX_IJUMP);
-
-	usnd->monitor_mode = JPSUMO_MONITOR_MOTORS;
-
-	/* trigger ADC conversion */
-	aai_writel(1, AAI_ADC_MONITOR);
-
-	/* wait for transfer to be complete */
-	wait_for_completion(&usnd->completion);
-exit:
-	up(&usnd->adc_lock);
-	return ret;
-}
-
-static int jpsumo_vbat_get_data(struct usnd_device *usnd)
-{
-	int ret = 0;
-
-	ret = down_interruptible(&usnd->adc_lock);
-	if (ret < 0)
-		return ret;
-
-	/* Then set gpio mux to read vbat on ADC 0 */
-	if (!gpio_is_valid(usnd->gpio_mux_vbat_jump)) {
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	gpio_direction_output(u_snd.gpio_mux_vbat_jump, ADC_JS_MUX_VBAT);
-
-	usnd->monitor_mode = JPSUMO_MONITOR_VBAT;
-
-	/* trigger ADC conversion */
-	aai_writel(1, AAI_ADC_MONITOR);
-
-	/* wait for transfer to be complete */
-	wait_for_completion(&usnd->completion);
-exit:
-	up(&usnd->adc_lock);
-	return ret;
-}
 
 static int temperature_get_data(struct usnd_device *usnd)
 {
@@ -280,8 +192,6 @@ static int temperature_get_data(struct usnd_device *usnd)
 	ret = down_interruptible(&usnd->adc_lock);
 	if (ret < 0)
 		return ret;
-
-	usnd->monitor_mode = DELOS_MONITOR_TEMPERATURE;
 
 	/* trigger ADC conversion */
 	aai_writel(1, AAI_ADC_MONITOR);
@@ -303,34 +213,24 @@ static void battery_config(int bat_adc_num)
 	/* set AAI configuration */
 	reg = aai_readl(AAI_ADC_MODES);
 
-	if (u_snd.adc_status & ADC_JS_ENABLE) {
-		/* JS enabled*/
-		reg &= ~(AAI_ADC_MODES_BATTERY_ALARM);
-		u_snd.adc_status &= ~(ADC_VBAT_USE_BAT_REG);
-		u_snd.vbat_value = 0xFFFF;
-	} else {
-		/* configure battery input*/
-		reg |= AAI_ADC_MODES_BATTERY_ALARM;
-		/* mandatory to check battery*/
-		reg |= AAI_ADC_MODES_MONITORING;
-		reg &= ~(AAI_ADC_MODES_BATTERY_IN);
-		reg |= AAI_ADC_MODES_BATTERY_IN & (bat_adc_num << 11);
-		u_snd.adc_status |= ADC_VBAT_USE_BAT_REG;
-	}
+	/* configure battery input*/
+	reg |= AAI_ADC_MODES_BATTERY_ALARM;
+	/* mandatory to check battery*/
+	reg |= AAI_ADC_MODES_MONITORING;
+	reg &= ~(AAI_ADC_MODES_BATTERY_IN);
+	reg |= AAI_ADC_MODES_BATTERY_IN & (bat_adc_num << 11);
+	u_snd.adc_status |= ADC_VBAT_USE_BAT_REG;
 
 	u_snd.adc_status |= ADC_VBAT_ENABLE;
 	aai_writel(reg, AAI_ADC_MODES);
 	wmb();
 
-	/* already done by JS_INIT*/
-	if (!(u_snd.adc_status & ADC_JS_ENABLE)) {
-		reg = aai_readl(AAI_CFG);
-		reg |= AAI_CFG_MUSIC_ICH0;
-		reg |= AAI_CFG_RUN_MULT;
-		reg &= ~(AAI_CFG_COMPACT);
-		aai_writel(reg, AAI_CFG);
-		wmb();
-	}
+	reg = aai_readl(AAI_CFG);
+	reg |= AAI_CFG_MUSIC_ICH0;
+	reg |= AAI_CFG_RUN_MULT;
+	reg &= ~(AAI_CFG_COMPACT);
+	aai_writel(reg, AAI_CFG);
+	wmb();
 
 	spin_unlock_irqrestore(&u_snd.lock, sp_lock);
 
@@ -341,9 +241,6 @@ static void battery_config(int bat_adc_num)
 static void ultra_sound_config(void)
 {
 	int reg;
-	unsigned long sp_lock;
-
-	spin_lock_irqsave(&u_snd.lock, sp_lock);
 
 	/* set AAI configuration */
 	reg = aai_readl(AAI_ADC_MODES);
@@ -367,8 +264,6 @@ static void ultra_sound_config(void)
 	reg |= AAI_DMA_CTRL_ULTRA;
 	aai_writel(reg, AAI_DMACTL);
 	wmb();
-
-	spin_unlock_irqrestore(&u_snd.lock, sp_lock);
 
 	pr_debug("Line %d: AAI_ADC_MODES 0x39c: 0x%x\n",
 		 __LINE__, aai_readl(AAI_ADC_MODES));
@@ -397,75 +292,88 @@ static void delos_temperature_config(int temperature_adc_num)
 	spin_unlock_irqrestore(&u_snd.lock, sp_lock);
 }
 
-static void jpsumo_config(void)
+static void adc_trigger(void)
 {
-	int reg;
-	unsigned long sp_lock;
+	unsigned long state;
+	spin_lock_irqsave(&u_snd.lock, state);
+	/*Enable ADC*/
+	aai_writel(1, AAI_ADC_ULTRA);
+	spin_unlock_irqrestore(&u_snd.lock, state);
+}
 
-	spin_lock_irqsave(&u_snd.lock, sp_lock);
+static void perform_dma(unsigned int size, unsigned int tholdcs, bool inc)
+{
+	struct pl08x_dma_cfg dma_cfg;
+	uint32_t ctrl, ctrl_save;
+	unsigned long irqstate;
 
-	/* set AAI configuration */
-	reg = aai_readl(AAI_ADC_MODES);
+	memset(&dma_cfg, 0, sizeof(dma_cfg));
+	dma_cfg.src_addr = spi_dev.dmabuf_bus;
+	dma_cfg.dst_addr = P6_SPI1_BAD + SPI_DATA;
+	dma_cfg.src_periph = _PL080_PERIPH_MEM;
+	dma_cfg.dst_periph = _PL080_PERIPH_SPI1;
+	dma_cfg.cxctrl = (union pl08x_dma_cxctrl){
+		.si = inc ? 1 : 0,
+		.di = 0,
+		.transize = size,
+		.swidth = 2,
+		.dwidth = 2,
+		.sbsize = 4,
+		.dbsize = 4,
+		.sahb = 0,
+		.sahb = 0
+	};
+	pl08x_dma_start(spi_dev.dmachan, &dma_cfg);
 
-	/* vbat enabled */
-	if (u_snd.adc_status & ADC_VBAT_ENABLE) {
-		/* cancel battery mode */
-		reg &= ~(AAI_ADC_MODES_BATTERY_ALARM);
-		u_snd.adc_status &= ~(ADC_VBAT_USE_BAT_REG);
-	}
+	adc_trigger();
 
-	/*ultra sound is connected in adc 1*/
-	reg &= ~(AAI_ADC_MODES_ULTRA_IN);
-	reg |= AAI_ADC_MODES_ULTRA_IN & (0x01 << 8);
-	reg |= AAI_ADC_MODES_ULTRA_SOUNDS;
-	reg |= AAI_ADC_MODES_MONITORING;
+	/* Setup SPI controller */
+	spin_lock_irqsave(&u_snd.lock, irqstate);
+	ctrl_save = ctrl = spi_readl(SPI_CTRL);
+	/* Set THOLDCS value. */
+	ctrl &= ~0x000000f0;
+	ctrl |= (tholdcs & 0xf) << 4;
+	/* Enable DMA mode */
+	ctrl |= (1 << 14); /* DMA_EN */
+	ctrl |= (1 << 15); /* DMA_TX_MODE */
+	spi_writel(ctrl, SPI_CTRL);
+	spin_unlock_irqrestore(&u_snd.lock, irqstate);
 
-	/* mandatory to get wheels */
-	aai_writel(reg, AAI_ADC_MODES);
-	wmb();
+	wait_for_completion(&spi_dev.dma_completion);
+	pl08x_dma_wait(spi_dev.dmachan);
 
-	if (!(u_snd.adc_status & ADC_VBAT_ENABLE)) {
-		/* already done by BATTERY_INIT */
-		reg = aai_readl(AAI_CFG);
-		reg |= AAI_CFG_MUSIC_ICH0;
-		reg |= AAI_CFG_RUN_MULT;
+	spin_lock_irqsave(&u_snd.lock, irqstate);
+	spi_writel(ctrl_save, SPI_CTRL);
+	spin_unlock_irqrestore(&u_snd.lock, irqstate);
+}
 
-		/* Ultra sound Frequency :
-		 * ultra sound will work at freq = 3 * base_frequency
-		 *
-		 * if AAI_CFG_COMPACT is set,
-		 * base_frequency = 44099.507Hz (~44.1kHz)
-		 *
-		 * if AAI_CFG_COMPACT is cleared,
-		 * base_frequency = 48004.150Hz (~48kHz)
-		 */
-		reg |= AAI_CFG_COMPACT;		/* => 3*44.1kHz = 132.3kHz */
-		aai_writel(reg, AAI_CFG);
-		wmb();
-	}
+static void perform_pulses_dma(unsigned int pulses)
+{
+	unsigned int tholdcs;
 
-	reg = aai_readl(AAI_DMACTL);
-	reg |= AAI_DMA_CTRL_ULTRA;
-	aai_writel(reg, AAI_DMACTL);
-	wmb();
+	spi_dev.dmabuf_cpu[0] = 0xff;
 
-	u_snd.irqcount = 1;	/* 1 chunk of 8kb */
-	spin_unlock_irqrestore(&u_snd.lock, sp_lock);
+	/* Set THOLDCS to 7 -> Add 8 SCLK cycles between each byte.
+	 * That way, we have eight 1's sent on MOSI, followed by eight
+	 * 0's, effectively forming a pulse at frequency
+	 * (SPICLK / (8 * 2)) == 641991 / 16 ~= 40 KHz */
+	tholdcs = 7;
 
-	pr_debug("Line %d: AAI_ADC_MODES 0x39c: 0x%x\n",
-		 __LINE__, aai_readl(AAI_ADC_MODES));
-	pr_debug("Line %d: AAI_CFG 0x320: 0x%x\n",
-		 __LINE__, aai_readl(AAI_CFG));
-	pr_debug("Line %d: AAI_DMACTL 0x37C: 0x%x\n",
-		 __LINE__, aai_readl(AAI_DMACTL));
+	/* Perform DMA, do not increment source address. */
+	perform_dma(pulses, tholdcs, false);
+}
+
+static inline void perform_raw_dma(unsigned int size, unsigned int tholdcs)
+{
+	perform_dma(size, tholdcs, true);
 }
 
 static long ultra_snd_ioctl(struct file *filp,
 			    unsigned int cmd,
 			    unsigned long arg)
 {
-	uint32_t reg, res = 0, dma, spi_sz = 0;
-	int32_t cpt;
+	uint32_t reg, res = 0, dma;
+	struct usnd_raw_buf raw_buf;
 	unsigned long sp_lock;
 
 	switch (cmd) {
@@ -497,12 +405,15 @@ static long ultra_snd_ioctl(struct file *filp,
 		break;
 	case USND_SETSIZE:
 		/* TODO Pimo: DELOS_INIT??? */
+		spin_lock_irqsave(&u_snd.lock, sp_lock);
 		res = copy_from_user((void *)&(u_snd.size),
 				     (void __user *)arg,
 				     sizeof(uint32_t));
 
-		if ((res != 0) || (u_snd.size > SIZEMAX))
+		if ((res != 0) || (u_snd.size > SIZEMAX)) {
+			spin_unlock_irqrestore(&u_snd.lock, sp_lock);
 			return -EINVAL;
+		}
 
 		memset(u_snd.adr, 0, u_snd.size);
 
@@ -548,6 +459,7 @@ static long ultra_snd_ioctl(struct file *filp,
 		reg = aai_readl(AAI_ULTRA_DMA_COUNT);
 		pr_debug("%d AAI_ULTRA_DMA_COUNT 0x%x, irqcount %d\n",
 			 __LINE__, reg, u_snd.irqcount);
+		spin_unlock_irqrestore(&u_snd.lock, sp_lock);
 		break;
 
 	case USND_COPYSAMPLE:
@@ -565,47 +477,61 @@ static long ultra_snd_ioctl(struct file *filp,
 		return -EINVAL;
 		break;
 
-	case USND_SPI_LEN:
-		if (access_ok(VERIFY_READ, (void *)arg, sizeof(uint8_t))) {
-			res = copy_from_user((void *) &(spi_dev.len),
-					     (void __user *)arg,
-					     sizeof(uint8_t));
-			if (!res)
-				return 0;
+	case USND_PULSES:
+		res = mutex_lock_interruptible(&spi_dev.mut);
+		if (res)
+			return res;
+		if (arg == 0) {
+			res = 0;
+			goto exit_usnd_pulses;
+		} else if (arg > USND_MAX_PULSES) {
+			res = -EINVAL;
+			goto exit_usnd_pulses;
 		}
-		return -EINVAL;
+
+		perform_pulses_dma(arg);
+		res = 0;
+exit_usnd_pulses:
+		mutex_unlock(&spi_dev.mut);
+		return res;
 		break;
 
-	case USND_SPI_DAT:
-		/* SPI_lEN is a bitfiled
-		 * The [0-4] bits are the number of phased pulses
-		 * The [5-7] bits are the number of dephased pulses
-		 * The sum of these two bitfiled cannot exceed SPIMAX
-		 * No need to check
-		 * */
-		spi_sz = spi_dev.len & 0xFF;
-		if (access_ok(VERIFY_READ, (void *)arg,
-			      spi_sz * sizeof(uint32_t))) {
-			res = copy_from_user((void *)spi_dev.adr,
-					     (void __user *)arg,
-					     spi_sz * sizeof(uint32_t));
-
-			*(spi_dev.adr + spi_sz - 1) |= 0x100;
-
-			if (!res) {
-				spin_lock_irqsave(&u_snd.lock, sp_lock);
-				/*Enable ADC*/
-				aai_writel(1, AAI_ADC_ULTRA);
-				/*Enable SPI*/
-				for (cpt = 0; cpt < spi_sz; cpt++)
-					spi_writel(*(spi_dev.adr + cpt),
-						   SPI_DATA);
-
-				spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-				return 0;
-			}
+	case USND_RAW:
+		res = mutex_lock_interruptible(&spi_dev.mut);
+		if (res)
+			return res;
+		if (copy_from_user(&raw_buf, (void __user *)arg,
+					sizeof(struct usnd_raw_buf))) {
+			res = -EFAULT;
+			goto exit_usnd_raw;
 		}
-		return -EINVAL;
+		if (raw_buf.length == 0) {
+			res = 0;
+			goto exit_usnd_raw;
+		} else if (raw_buf.length > USND_MAX_RAW_BUFLEN) {
+			res = -EINVAL;
+			goto exit_usnd_raw;
+		} else if ((raw_buf.length & 0x3) != 0) {
+			res = -EINVAL;
+			goto exit_usnd_raw;
+		}
+		if (raw_buf.tholdcs > 0xf) {
+			res = -EINVAL;
+			goto exit_usnd_raw;
+		}
+		/* Copy to DMA coherent buffer */
+		if (copy_from_user(spi_dev.dmabuf_cpu,
+					(void __user *)raw_buf.buf,
+					raw_buf.length)) {
+			res = -EFAULT;
+			goto exit_usnd_raw;
+		}
+
+		perform_raw_dma(raw_buf.length >> 2, raw_buf.tholdcs);
+		res = 0;
+exit_usnd_raw:
+		mutex_unlock(&spi_dev.mut);
+		return res;
 		break;
 
 	case TEMPERATURE:
@@ -627,18 +553,8 @@ static long ultra_snd_ioctl(struct file *filp,
 			return -EINVAL;
 
 		if (access_ok(VERIFY_WRITE, (void *)arg, sizeof(uint32_t))) {
-			if (!(u_snd.adc_status & ADC_VBAT_USE_BAT_REG)) {
-				/*JS*/
-				res = jpsumo_vbat_get_data(&u_snd);
-				if (res < 0)
-					return -EINVAL;
-
-				reg = u_snd.vbat_value;
-			} else {
-				/*delos*/
-				reg = aai_readl(AAI_ADC_BATTERY_VALUE)
-					& 0x3FF;
-			}
+			/*delos*/
+			reg = aai_readl(AAI_ADC_BATTERY_VALUE) & 0x3FF;
 
 			res = copy_to_user((void __user *) arg,
 					   (void *) &reg,
@@ -647,179 +563,24 @@ static long ultra_snd_ioctl(struct file *filp,
 				return -EINVAL;
 		}
 		break;
-
-	case JS_GETBUFFER:
-		/*
-		 * pin is on next space to write,
-		 * pin-1buff is being written,
-		 * pin-2buff is the last readable buffer,
-		 * that's why it is (2*(1 << MAXDMA))...
-		 */
-		spin_lock_irqsave(&u_snd.lock, sp_lock);
-		if ((mem.pin - mem.usr_ptr + SIZEMAX) % SIZEMAX >
-		    (2 * (1 << MAXDMA))) {
-			tb.offset = mem.usr_ptr;
-			mem.usr_ptr = (mem.usr_ptr + (1 << MAXDMA)) % SIZEMAX;
-
-			if (access_ok(VERIFY_WRITE, (void *)arg,
-				      sizeof(struct timed_buf))) {
-				spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-				res = copy_to_user((void __user *)arg,
-						   (void *)&tb, sizeof(tb));
-				return res;
-			}
-			res = -EINVAL;
-		} else {
-			res = -EAGAIN;
-		}
-
-		spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-		return res;
-		break;
-
-	case JS_RELEASEBUFFER:
-		if (access_ok(VERIFY_READ, (void *)arg, sizeof(uint32_t))) {
-			res = copy_from_user((void *)&(reg),
-					     (void __user *)arg,
-					     sizeof(uint32_t));
-			if (res)
-				return -EINVAL;
-
-			/*
-			 * The next IF describes the following conditions:
-			 * Buffer must be released in order
-			 * Cannot release more buffer than requested
-			 */
-			spin_lock_irqsave(&u_snd.lock, sp_lock);
-			if ((reg != mem.pout) ||
-			    ((1 << MAXDMA) > ((SIZEMAX+mem.usr_ptr - reg) %
-					      SIZEMAX)))
-				res = -EINVAL;
-
-			res = mem_get(&mem, 1 << MAXDMA);
-			if (res !=  1 << MAXDMA)
-				res = -EINVAL;
-			else
-				res = 0;
-
-			spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-		}
-		return res;
-		break;
-
-	case JS_INIT:
-		u_snd.size = 1 << 18;
-		memset(u_snd.adr, 0, u_snd.size);
-
-		jpsumo_config();
-		mem.pin = 0; mem.usr_ptr = 0; mem.pout = 0; mem.free = SIZEMAX;
-
-		/* gpio mux init for adc 0 to read ijump*/
-		if (gpio_is_valid(u_snd.gpio_mux_vbat_jump))
-			gpio_direction_output(u_snd.gpio_mux_vbat_jump,
-					      ADC_JS_MUX_IJUMP);
-
-		spin_lock_irqsave(&u_snd.lock, sp_lock);
-		aai_writel(u_snd.bus, AAI_DMASA_ULTRA);
-		/* Next chunk of memory 8Kb*/
-		aai_writel(u_snd.bus + (1 << MAXDMA), AAI_DMAFA_ULTRA);
-		aai_writel(0x7, AAI_ULTRA_DMA_COUNT);
-		reg = aai_readl(AAI_ULTRA_DMA_COUNT);
-		res = mem_put(&mem, 1 << MAXDMA);
-		if (res == (1<<MAXDMA)) {
-			/*mem_put increase pin, so the @ is pin - size*/
-			aai_writel(u_snd.bus + mem.pin - (1<<MAXDMA),\
-				   AAI_DMASA_ULTRA);
-			aai_writel(u_snd.bus + mem.pin, AAI_DMAFA_ULTRA);
-		}
-		u_snd.adc_status |= ADC_JS_ENABLE;
-		spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-
-		if (res == (1 << MAXDMA))
-			pr_debug("JS_INIT done\n");
-		else
-			return -EAGAIN;
-		break;
-
-	case JS_START_8K:
-		spin_lock_irqsave(&u_snd.lock, sp_lock);
-		if (u_snd.adc_status & ADC_JS_ENABLE) {
-			/* start 8kHz capture */
-			aai_writel(1, AAI_ADC_ULTRA);
-			u_snd.adc_status |= ADC_JS_8K_RUN;
-		}
-		spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-		break;
-
-	case JS_START:
-		if (u_snd.adc_status & ADC_JS_ENABLE) {
-			if (gpio_is_valid(u_snd.gpio_mux_vbat_jump))
-				gpio_direction_output(u_snd.gpio_mux_vbat_jump,
-						      ADC_JS_MUX_IJUMP);
-
-			if (!(u_snd.adc_status & ADC_JS_50_RUN))
-				u_snd.adc_status |= ADC_JS_50_RUN;
-		}
-		break;
-
-	case JS_STOP:
-		spin_lock_irqsave(&u_snd.lock, sp_lock);
-		mem.pin     = 0;
-		mem.pout    = 0;
-		mem.usr_ptr = 0;
-
-		/* disable JS */
-		u_snd.adc_status &= ~(ADC_JS_ENABLE | ADC_JS_8K_RUN);
-		u_snd.adc_status &= ~ADC_JS_50_RUN;
-		spin_unlock_irqrestore(&u_snd.lock, sp_lock);
-		break;
-
-	case JS_GET_DATA:
-		/* Mandatory JS_START HAVE to be performed before */
-		if (!(u_snd.adc_status & ADC_JS_50_RUN))
-			return -EINVAL;
-
-		res = jpsumo_adc_get_data(&u_snd);
-		if (res < 0)
-			return -EINVAL;
-
-		if (access_ok(VERIFY_WRITE, (void *)arg,
-			      sizeof(struct adc_data_t))) {
-			res = copy_to_user((void __user *) arg,
-					   (void *)&u_snd.adc_data,
-					   sizeof(struct adc_data_t));
-			if (res)
-				return -EINVAL;
-		}
-		break;
-
-	case JS_MUX_ADC_1_2:
-		/*
-		 * arg = 0 for LWh on ADC1 and RWh on ADC2
-		 * arg = 1 for RWh on ADC1 and Wh on ADC2
-		 */
-		if (access_ok(VERIFIY_READ, (void *)arg, sizeof(uint32_t))) {
-			res = copy_from_user((void *)&(reg),
-					     (void __user *)arg,
-					     sizeof(uint32_t));
-			if (res)
-				return -EINVAL;
-		}
-		break;
+	default:
+		return -EINVAL;
 	}
 	return 0;
 }
 
 static unsigned int ultra_sound_poll(struct file *filep, poll_table *wait)
 {
+	unsigned long irqstate;
 	poll_wait(filep, &u_snd.waitq, wait);
+	spin_lock_irqsave(&u_snd.lock, irqstate);
 	if (u_snd.irqcount <= 0) {
-		if (u_snd.adc_status & ADC_JS_ENABLE)
-			u_snd.irqcount = 1;
 		pr_debug("%s %d  irqcount %d\n",
 			 __func__, __LINE__, u_snd.irqcount);
+		spin_unlock_irqrestore(&u_snd.lock, irqstate);
 		return POLLIN | POLLRDNORM;
 	}
+	spin_unlock_irqrestore(&u_snd.lock, irqstate);
 	return 0;
 }
 
@@ -829,6 +590,7 @@ static const struct file_operations ultra_snd_fops = {
 	.mmap           = ultra_snd_mmap,
 	.unlocked_ioctl = ultra_snd_ioctl,
 	.poll           = ultra_sound_poll,
+	.owner = THIS_MODULE
 };
 
 static struct miscdevice ultra_snd_miscdev = {
@@ -839,10 +601,10 @@ static struct miscdevice ultra_snd_miscdev = {
 
 static irqreturn_t u_snd_it(int irq, void *dev_id)
 {
-	uint32_t res, reg;
+	uint32_t reg;
 	uint16_t addr;
 	unsigned long flags;
-	irqreturn_t ret = IRQ_HANDLED;
+	irqreturn_t ret = IRQ_NONE;
 
 	spin_lock_irqsave(&u_snd.lock, flags);
 
@@ -850,49 +612,19 @@ static irqreturn_t u_snd_it(int irq, void *dev_id)
 	reg = aai_readl(AAI_ITS);
 	if (reg & AAI_ITS_ULTRA) {
 		aai_writel(reg & AAI_ITS_ULTRA, AAI_DMA_INT_ACK);
+		ret = IRQ_HANDLED;
 		u_snd.irqcount--;
 
 		wake_up_interruptible(&u_snd.waitq);
-		if ((u_snd.irqcount > 0) ||
-		    (u_snd.adc_status & ADC_JS_ENABLE)) {
+		if (u_snd.irqcount > 0) {
 			aai_writel(1, AAI_ADC_ULTRA);
-			ret = IRQ_HANDLED;
-		} else {
-			ret = IRQ_NONE;
-		}
-
-		tb.cycles = parrot6_get_cycles();
-
-		if (u_snd.adc_status & ADC_JS_8K_RUN) {
-			res = mem_put(&mem, 1 << MAXDMA);
-			if (res == (1 << MAXDMA))
-				aai_writel(u_snd.bus + mem.pin,
-					   AAI_DMAFA_ULTRA);
-			else
-				u_snd.adc_status &= ~(ADC_JS_8K_RUN);
 		}
 	} else if (reg & AAI_ITS_MONITOR) {
-		switch (u_snd.monitor_mode) {
-		case JPSUMO_MONITOR_MOTORS:
-			/* read wheel 50Hz on ADC 2*/
-			u_snd.adc_data.wheel50hz =
-				aai_readl(AAI_ADC_DATA + 0x8);
+		ret = IRQ_HANDLED;
 
-			/* read ijump on ADC 0*/
-			u_snd.adc_data.ijump = aai_readl(AAI_ADC_DATA);
-			break;
-		case JPSUMO_MONITOR_VBAT:
-			/* read vbat on ADC 0 */
-			u_snd.vbat_value = aai_readl(AAI_ADC_DATA);
-			break;
-		case DELOS_MONITOR_TEMPERATURE:
-			/* read temperature on ADC 2 */
-			addr = AAI_ADC_DATA + 0x4 * u_snd.temperature_adc_num;
-			u_snd.temperature_value = aai_readl(addr);
-			break;
-		default:
-			break;
-		}
+		/* read temperature on ADC 2 */
+		addr = AAI_ADC_DATA + 0x4 * u_snd.temperature_adc_num;
+		u_snd.temperature_value = aai_readl(addr);
 
 		/*
 		 * Reading AAI_ADC_DATA acknowledges interrupt.
@@ -904,6 +636,14 @@ static irqreturn_t u_snd_it(int irq, void *dev_id)
 
 	spin_unlock_irqrestore(&u_snd.lock, flags);
 	return ret;
+}
+
+static void spi_dma_callback(unsigned int chan, void *data, int status)
+{
+	if (status) {
+		pr_err("SPI1 DMA transfer error.\n");
+	}
+	complete(&spi_dev.dma_completion);
 }
 
 /*
@@ -942,7 +682,7 @@ static int __init probe_spi(void)
 	 * Configure the spi interface
 	 * bit, signification: value
 	 * 0-3, TSETUPCS: 0
-	 * 4-7, THOLDCS: 0
+	 * 4-7, THOLDCS: 7 (hold MOSI during 8 SCLK periods after every byte)
 	 *   8, spi stream mode: an interrupt is generated when FIFO is empty
 	 *   9, spi master/slave mode: master
 	 *  10, spi clock polarity: active high
@@ -969,12 +709,30 @@ static int __init probe_spi(void)
 	/* spi clock divider: (PCLK/ 2 * (107 + 1)) / 2 ~40Khz * (2 * 8) */
 	spi_writel(107, SPI_SPEED);
 
-	/* allocate spi memory */
-	spi_dev.adr = kzalloc(SPIMAX, GFP_KERNEL);
-	if (!PTR_ERR(spi_dev.adr))
+	/* Allocate spi memory.
+	 * The same buffer is used for USND_PULSES and USND_RAW ioctls. */
+	spi_dev.dmabuf_cpu = dma_alloc_coherent(u_snd.device,
+			PAGE_ALIGN(USND_MAX_RAW_BUFLEN), &spi_dev.dmabuf_bus, GFP_KERNEL);
+	if (!spi_dev.dmabuf_cpu) {
 		return -ENOMEM;
+	}
+
+	init_completion(&spi_dev.dma_completion);
+	mutex_init(&spi_dev.mut);
+
+	/* request a DMA channel */
+	res = pl08x_dma_request(&spi_dev.dmachan, "ultra_snd", spi_dma_callback,
+			NULL);
+	if (res) {
+		pr_err("Could not get a DMA channel: errno %d\n", res);
+		res = -EBUSY;
+		goto nodma;
+	}
 
 	return 0;
+nodma:
+	dma_free_coherent(u_snd.device, PAGE_ALIGN(USND_MAX_RAW_BUFLEN),
+			spi_dev.dmabuf_cpu, spi_dev.dmabuf_bus);
 nospimap:
 	clk_disable(spi_dev.clock);
 spiclk:
@@ -987,7 +745,6 @@ static int ultra_snd_probe(struct platform_device *pdev)
 	int32_t res;
 	unsigned long flags;
 	struct resource *resm;
-	struct parrot_ultra_snd_platform_data *pdata = pdev->dev.platform_data;
 
 	u_snd.lock =  __SPIN_LOCK_UNLOCKED(u_snd.lock);
 	u_snd.device = &pdev->dev;
@@ -1068,13 +825,6 @@ static int ultra_snd_probe(struct platform_device *pdev)
 	if (res)
 		goto noirq;
 
-	if (pdata) {
-		u_snd.gpio_mux_vbat_jump = pdata->gpio_mux_vbat_jump;
-		u_snd.gpio_mux_wheels    = pdata->gpio_mux_wheels;
-		pr_debug(" GPIO MUX: VBAT_JUMP %d, WHEELS %d\n",
-			 u_snd.gpio_mux_vbat_jump, u_snd.gpio_mux_wheels);
-	}
-
 	/* Call the SPI probe */
 	res = probe_spi();
 	if (res) {
@@ -1103,7 +853,7 @@ nochdev:
 
 static int ultra_snd_cleanup(struct platform_device *pdev)
 {
-	pr_info("Removing driver...");
+	pr_info("Removing driver...\n");
 
 	if (u_snd.adr)
 		dma_free_coherent(u_snd.device,
@@ -1116,8 +866,10 @@ static int ultra_snd_cleanup(struct platform_device *pdev)
 	iounmap(spi_dev.map);
 	clk_disable(spi_dev.clock);
 	clk_put(spi_dev.clock);
+	dma_free_coherent(u_snd.device, PAGE_ALIGN(USND_MAX_RAW_BUFLEN),
+			spi_dev.dmabuf_cpu, spi_dev.dmabuf_bus);
+	pl08x_dma_free(spi_dev.dmachan);
 	misc_deregister(&ultra_snd_miscdev);
-	kfree(spi_dev.adr);
 
 	return 0;
 }

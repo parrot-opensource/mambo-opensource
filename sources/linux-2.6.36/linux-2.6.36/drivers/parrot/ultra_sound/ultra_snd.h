@@ -14,72 +14,39 @@
 
 #include <linux/types.h>
 
-struct timed_buf {
-	uint32_t offset;
-	uint64_t cycles;
-};
-
-struct adc_data_t {
-	uint16_t ijump;     /*< read on adc 0 (muxed with battery) */
-	uint16_t wheel50hz; /*< read on adc 2 */
-};
-
-
 #define ULTRA_SND_NAME	"ultra_snd"
 /* SIZEMAX: Maximum size of ADC DMA-able memory 256KB */
 #define SIZEMAX		(1 << 18)
 #define AAI_DMA_CTRL_ULTRA	(1 << 11)
-#define SPIMAX		0x100
 #define MAXDMA		13
 
-/* SPI base address */
-#define P6_SPI1_BAD	0xd00c0000
-#define SPI_CTRL	0x0000
-#define SPI_SPEED	0x0004
-#define SPI_STATUS	0x0008
-#define SPI_SIZE	0x000c
-#define SPI_THRES_RX	0x0010
-#define SPI_THRES_TX	0x0014
-#define SPI_DATA	0x0040
+#define USND_MAX_PULSES		1024
+#define USND_MAX_RAW_BUFLEN	4096
 
-#define aai_writel(_value_, _reg_)\
-	writel(_value_, _reg_ + u_snd.map)
-
-#define aai_readl(_reg_) readl(_reg_ + u_snd.map)
-
-#define spi_writel(_value_, _reg_)\
-	writel(_value_, _reg_ + spi_dev.map)
-
-#define spi_readl(_reg_) readl(_reg_ + spi_dev.map)
-
+struct usnd_raw_buf {
+	/* Pointer to sample data. Only the 8 lower bytes of the uint32_t are
+	 * used as SPI data. */
+	uint32_t *buf;
+	/* Sample buffer length in bytes. From 0 to USND_MAX_RAW_BUFLEN. */
+	uint16_t length;
+	/* THOLDCS value to use when transmitting the buffer. From 0x0 to 0xf.
+	 * Delay between bytes is (THOLDCS + 1) SCLK periods. Set to 0 if
+	 * unsure. */
+	uint8_t tholdcs;
+};
 
 #define USND_IO_MAGIC 'u'
 #define USND_SETSIZE        _IOW(USND_IO_MAGIC, 1, int)
 #define USND_COPYSAMPLE     _IOR(USND_IO_MAGIC, 2, int*)
-#define USND_SPI_LEN        _IOW(USND_IO_MAGIC, 3, int)
-#define USND_SPI_DAT        _IOW(USND_IO_MAGIC, 4, int)
+/* Send n ultrasound pulses at 40 KHz. n must be less than USND_MAX_PULSES. */
+#define USND_PULSES         _IOW(USND_IO_MAGIC, 3, unsigned int)
+/* Send raw bitstream at 641990.7 bps through the ultrasound capsule. */
+#define USND_RAW            _IOW(USND_IO_MAGIC, 4, struct usnd_raw_buf)
 #define BATTERY             _IOR(USND_IO_MAGIC, 5, int)
 #define TEMPERATURE         _IOR(USND_IO_MAGIC, 6, int)
+#define BATTERY_INIT        _IO(USND_IO_MAGIC, 7)
+#define TEMPERATURE_INIT    _IO(USND_IO_MAGIC, 8)
 
-#define JS_INIT             _IO(USND_IO_MAGIC, 6)
-#define JS_GETBUFFER        _IOR(USND_IO_MAGIC, 7, struct timed_buf)
-#define JS_RELEASEBUFFER    _IOW(USND_IO_MAGIC, 8, int)
-#define JS_START            _IO(USND_IO_MAGIC, 9)
-#define JS_START_8K         _IO(USND_IO_MAGIC, 10)
-#define JS_STOP             _IO(USND_IO_MAGIC, 11)
-#define JS_GET_DATA         _IOR(USND_IO_MAGIC, 12, struct adc_data_t)
-#define BATTERY_INIT        _IO(USND_IO_MAGIC, 13)
-#define JS_MUX_ADC_1_2      _IOW(USND_IO_MAGIC, 14, uint32_t)
-#define TEMPERATURE_INIT    _IO(USND_IO_MAGIC, 15)
-
-#define USND_IOC_MAXNR 14
-
-enum pulse_mode {
-	FOUR_PULSE = 0,
-	EIGHT_PULSE,
-	SIXTEEN_PULSE,
-	TWELVE_FIVE_DEPHASED_PULSE,
-	SIXTEEN_FOUR_DEPHASED_PULSE,
-};
+#define USND_IOC_MAXNR 8
 
 #endif

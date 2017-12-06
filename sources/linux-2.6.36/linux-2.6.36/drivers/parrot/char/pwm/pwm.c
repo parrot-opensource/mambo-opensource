@@ -443,6 +443,7 @@ struct file_operations pwm_fops = {
 	.unlocked_ioctl =     pwm_ioctl,
 	.open =      pwm_open,
 	.release =   pwm_release,
+	.owner = THIS_MODULE
 };
 
 static struct miscdevice pwm_miscdev = {

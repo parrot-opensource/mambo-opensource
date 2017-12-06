@@ -111,6 +111,13 @@ config MACH_PARROT_JPSUMO_EVO
 	help
 		Say Y here if you are using a jumping sumo EVO board.
 
+config HBRIDGE_SAFETY_HACK
+	bool "Enable Hbridge safety"
+	default n
+	depends on MACH_PARROT_JPSUMO_EVO
+	help
+		Say Y here if you want a safe check when piloting gates of jump hbridge
+
 config MACH_PARROT_JPSUMO3
 	bool "Parrot jumping sumo3"
 	select ARCH_VARIANT_PARROT6I

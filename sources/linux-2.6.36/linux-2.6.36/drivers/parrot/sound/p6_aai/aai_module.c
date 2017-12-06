@@ -24,10 +24,12 @@
  */
 #define AAI_SOFT_INTERRUPT  3
 
+#ifndef CONFIG_AAI_IRQ_SHARED
 static struct fiq_handler fh =
 {
     .name = "aai_fiq"
 };
+#endif
 
 /**
 * @brief Initialize AAI module
@@ -75,7 +77,6 @@ static int aai_module_probe(struct platform_device *pdev)
     /*
      * Initialize IO
      */
-#ifndef CONFIG_AAI_IRQ_SHARED
     aai_data->ioarea = request_mem_region(res->start,
                                           res->end - res->start + 1,
                                           pdev->name);
@@ -85,7 +86,6 @@ static int aai_module_probe(struct platform_device *pdev)
         ret = -ENXIO;
         goto no_iores;
     }
-#endif
 
     aai_data->iobase = ioremap(res->start, res->end - res->start + 1);
     if (aai_data->iobase == NULL)
@@ -186,8 +186,21 @@ static int aai_module_probe(struct platform_device *pdev)
         aai_err(&pdev->dev, "failed attaching IRQ %d\n", aai_data->irq);
 #endif
 
+    /* Finally register the card to ALSA */
+    ret = snd_card_register(card);
+    if (ret)
+    {
+        aai_err(&pdev->dev, "card registration failed: err=%d\n", ret);
+        goto no_card_register;
+    }
+
+
     aai_dbg(&pdev->dev, "module initialized\n");
     return ret;
+no_card_register:
+#ifdef CONFIG_AAI_IRQ_SHARED
+    free_irq(aai_data->irq, aai_data);
+#endif
 
 #ifndef CONFIG_AAI_IRQ_SHARED
 no_fiq:
@@ -222,13 +235,15 @@ static int aai_module_remove(struct platform_device *pdev)
      */
     aai_hw_remove(aai);
 
+#ifndef CONFIG_AAI_IRQ_SHARED
     /*
      * Release FIQ
      */
     disable_fiq(aai->irq);
     release_fiq(&fh);
-
-    /*free_irq(aai->irq, aai);*/
+#else
+    free_irq(aai->irq, aai);
+#endif
 
     /*
      * beware, ths call will free drv_data which is included

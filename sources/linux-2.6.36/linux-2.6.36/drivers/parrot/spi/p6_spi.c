@@ -874,7 +874,6 @@ static struct clk *__devinit parrot6_spi_enable(struct platform_device *pdev)
 
 	spi_clk = clk_get(&pdev->dev, clk_name[pdev->id > 3 ? 0 : pdev->id]);
 	if (!IS_ERR(spi_clk)) {
-		clk_disable(spi_clk);
 		clk_enable(spi_clk);
 	}
 	return spi_clk;
@@ -993,6 +992,7 @@ no_bufdma:
 no_iomap:
 	release_resource(drv_data->ioarea);
 	kfree(drv_data->ioarea);
+	clk_put(drv_data->clock);
 no_iores:
 no_queue:
 clk_err:
@@ -1031,6 +1031,7 @@ static int __devexit parrot6_spi_remove(struct platform_device *pdev)
 
 	/* disable spi clk */
 	clk_disable(drv_data->clock);
+	clk_put(drv_data->clock);
 
 	/* disconnect from the SPI framework */
 	spi_unregister_master(drv_data->master);

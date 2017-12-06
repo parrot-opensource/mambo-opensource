@@ -402,6 +402,229 @@ exit:
 	return ret;
 }
 
+#ifdef CONFIG_HBRIDGE_SAFETY_HACK
+#include <linux/gpio.h>
+enum {
+	PWM_UNKNOWN = -1,
+	PWM_OFF,
+	PWM_ON,
+	PWM_PWM,
+	PWM_PWMG,
+};
+
+static int pwm0_state_bkp = PWM_UNKNOWN;
+static int pwm1_state_bkp = PWM_UNKNOWN;
+static int pwm0_ratio_bkp = -1;
+static int pwm1_ratio_bkp = -1;
+int pwm0_output_bkp = -1;
+int pwm1_output_bkp = -1;
+EXPORT_SYMBOL(pwm0_output_bkp);
+EXPORT_SYMBOL(pwm1_output_bkp);
+
+static int check_pca9633_state(struct i2c_msg *msgs, int num, int save)
+{
+	int i;
+	int pca_reg = -1;
+
+	int pwm0_state = pwm0_state_bkp;
+	int pwm1_state = pwm1_state_bkp;
+	int pwm0_ratio = pwm0_ratio_bkp;
+	int pwm1_ratio = pwm1_ratio_bkp;
+	int pwm0_output = pwm0_output_bkp;
+	int pwm1_output = pwm1_output_bkp;
+
+	for (i = 0; i < num; i++) {
+		int idx = 0;
+		if ((msgs[i].addr & 0x7f) == 0x70) {
+			printk("pca9633 all call addr\n");
+			return -EREMOTEIO;
+		}
+		if ((msgs[i].addr & 0x7f) == 0x3) {
+			printk("pca9633 sw reset\n");
+			if (msgs[i].len != 2) {
+				printk("pca9633 wrong size %d\n", msgs[i].len);
+				return -EREMOTEIO;
+			}
+			if (msgs[i].buf[0] != 0xa5 && msgs[i].buf[1] != 0x5a) {
+				printk("pca9633 wrong args\n");
+				return -EREMOTEIO;
+			}
+			pwm0_state = PWM_OFF;
+			pwm1_state = PWM_OFF;
+			pwm0_ratio = 0;
+			pwm1_ratio = 0;
+			pwm0_output = 1;
+			pwm1_output = 1;
+		}
+		if ((msgs[i].addr & 0x7f) == 0x62 || (msgs[i].addr & 0x7f) == 0x15) {
+			/* write transaction, we will reset the register addr */
+			if (!(msgs[i].flags & I2C_M_RD))
+				pca_reg = -1;
+			if (msgs[i].len == 0) {
+				printk("pca9633 null size\n");
+				return -EREMOTEIO;
+			}
+			if (pca_reg == -1) {
+				/* want a write transaction for register setting */
+				if (msgs[i].flags & I2C_M_RD) {
+					printk("pca9633 not setting regiter\n");
+					return -EREMOTEIO;
+				}
+				pca_reg = msgs[i].buf[idx++];
+				if (!((pca_reg & 0xe0) == 0x80 || (pca_reg & 0xe0) == 0x00)) {
+					printk("pca9633 increment mode not supported\n");
+					return -EREMOTEIO;
+				}
+			}
+			/* We are strict here for simplicity. But instead of expecting a reset,
+			   we could check that all important regs are init
+			 */
+			if (pwm0_state == PWM_UNKNOWN || pwm1_state == PWM_UNKNOWN) {
+				printk("pca9633 access reg without reset %d\n", msgs[i].buf[0]);
+				return -EREMOTEIO;
+			}
+			for (; idx < msgs[i].len; idx++) {
+				/* parse data */
+				if (!(msgs[i].flags & I2C_M_RD)) {
+					char val = msgs[i].buf[idx];
+					switch (pca_reg & 0xf) {
+						case 0:
+							if (val != 0 && val != 1) {
+								printk("trying to set mode1 to %d\n", val);
+								return -EREMOTEIO;
+							}
+							break;
+						case 0x1:
+							if (val != 1) {
+								printk("trying to set mode2 to %d\n", val);
+								return -EREMOTEIO;
+							}
+							break;
+						case 0x8:
+							pwm0_state = val & 3;
+							pwm1_state = (val>>2) & 3;
+							if (pwm0_state == PWM_ON)
+								pwm0_output = 0;
+							else if (pwm0_state == PWM_OFF)
+								pwm0_output = 1;
+							else {
+								if (pwm0_ratio)
+									pwm0_output = 0;
+								else
+									pwm0_output = 1;
+							}
+							if (pwm1_state == PWM_ON)
+								pwm1_output = 0;
+							else if (pwm1_state == PWM_OFF)
+								pwm1_output = 1;
+							else {
+								if (pwm1_ratio)
+									pwm1_output = 0;
+								else
+									pwm1_output = 1;
+							}
+							break;
+						case 0x2:
+							/* pwm0 duty */
+							pwm0_ratio = val;
+							if (pwm0_state == PWM_PWM || pwm0_state == PWM_PWMG) {
+								if (pwm0_ratio)
+									pwm0_output = 0;
+								else
+									pwm0_output = 1;
+							}
+							break;
+						case 0x3:
+							/* pwm0 duty */
+							pwm1_ratio = val;
+							if (pwm1_state == PWM_PWM || pwm1_state == PWM_PWMG) {
+								if (pwm1_ratio)
+									pwm1_output = 0;
+								else
+									pwm1_output = 1;
+							}
+							break;
+					}
+
+					if (pwm0_output == 0 && gpio_get_value(38)) {
+						printk("pca9633 pwm0 will go 0 while gpio (OEn%d)\n", gpio_get_value(42));
+						printk("pca9633 reg[0x%x]=0x%x\n", pca_reg & 0xf, val);
+						return -EREMOTEIO;
+					}
+					if (pwm1_output == 0 && gpio_get_value(39)) {
+						printk("pca9633 pwm1 will go 0 while gpio (OEn%d)\n", gpio_get_value(42));
+						printk("pca9633 reg[0x%x]=0x%x\n", pca_reg & 0xf, val);
+						return -EREMOTEIO;
+					}
+
+				}
+
+				/* auto increment */
+				if (pca_reg & 0x80) {
+					pca_reg++;
+					if (pca_reg == 0x8d)
+						pca_reg = 0x80;
+				}
+			}
+		}
+	}
+	if (save) {
+		pwm0_state_bkp = pwm0_state;
+		pwm1_state_bkp = pwm1_state;
+		pwm0_ratio_bkp = pwm0_ratio;
+		pwm1_ratio_bkp = pwm1_ratio;
+		pwm0_output_bkp = pwm0_output;
+		pwm1_output_bkp = pwm1_output;
+	}
+	return 0;
+}
+
+static void set_pca9633_error(struct i2c_msg *msgs, int num)
+{
+	/* if there is an error on the transaction
+	   set unknow state.
+	   With current code, this will abort all new transaction
+	   if no reset is done.
+	   Because output are undef, setting gpio to 1 will be filtered.
+	 */
+	int i;
+
+	int pwm0_state = pwm0_state_bkp;
+	int pwm1_state = pwm1_state_bkp;
+	int pwm0_ratio = pwm0_ratio_bkp;
+	int pwm1_ratio = pwm1_ratio_bkp;
+	int pwm0_output = pwm0_output_bkp;
+	int pwm1_output = pwm1_output_bkp;
+
+	for (i = 0; i < num; i++) {
+		if ((msgs[i].addr & 0x7f) == 0x3) {
+			pwm0_state = PWM_UNKNOWN;
+			pwm1_state = PWM_UNKNOWN;
+			pwm0_ratio = -1;
+			pwm1_ratio = -1;
+			pwm0_output = -1;
+			pwm1_output = -1;
+			printk("pca9633 reset transaction error\n");
+		}
+		if ((msgs[i].addr & 0x7f) == 0x62 || (msgs[i].addr & 0x7f) == 0x15) {
+			pwm0_state = PWM_UNKNOWN;
+			pwm1_state = PWM_UNKNOWN;
+			pwm0_ratio = -1;
+			pwm1_ratio = -1;
+			pwm0_output = -1;
+			pwm1_output = -1;
+			printk("pca9633 transaction error\n");
+		}
+	}
+	pwm0_state_bkp = pwm0_state;
+	pwm1_state_bkp = pwm1_state;
+	pwm0_ratio_bkp = pwm0_ratio;
+	pwm1_ratio_bkp = pwm1_ratio;
+	pwm0_output_bkp = pwm0_output;
+	pwm1_output_bkp = pwm1_output;
+}
+
+#endif
 /**
  *  I2C transfer main function
  */
@@ -416,6 +639,11 @@ static int parrot5_i2cm_master_xfer(struct i2c_adapter *i2c_adap,
 	u32 status;
 	int retry = 0;
 	unsigned long flags;
+
+#ifdef CONFIG_HBRIDGE_SAFETY_HACK
+	if (check_pca9633_state(msgs, num, 1))
+		return -EREMOTEIO;
+#endif
 
 retry_transfert:
 	retry++;
@@ -505,6 +733,11 @@ retry_transfert:
 	else if (drv_data->status)
 		ret = -EREMOTEIO;
 
+#ifdef CONFIG_HBRIDGE_SAFETY_HACK
+	if (ret != num) {
+		set_pca9633_error(msgs, num);
+	}
+#endif
 	return ret;
 
 arbitration_error:
@@ -516,6 +749,9 @@ arbitration_error:
 	goto retry_transfert;
 
 xfer_error:
+#ifdef CONFIG_HBRIDGE_SAFETY_HACK
+	set_pca9633_error(msgs, num);
+#endif
 	return -EREMOTEIO;
 }
 

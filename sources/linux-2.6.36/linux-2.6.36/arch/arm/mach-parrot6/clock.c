@@ -127,12 +127,13 @@ struct clk {
 	const char*  id;            /* peripheral name */
 	unsigned int bit;           /* clock registers enable/disable bit */
 	unsigned int offset;        /* clock registers offset */
+	int users;                  /* num users that need the clock enabled */
 };
 
 /* psd clocks use separate clock registers */
 #define PSD_CLK_OFFSET (_P6_SYS_PSD_CEN-_P6_SYS_CEN)
 
-static const struct clk clocks[] = {
+static struct clk clocks[] = {
 	{.id = "dmac",  .bit = P6_SYS_CLK_DMA,   .offset = 0},
 	{.id = "camif0",.bit = P6_SYS_CLK_CAMIF0,.offset = 0},
 	{.id = "camif1",.bit = P6_SYS_CLK_CAMIF1,.offset = 0},
@@ -166,6 +167,7 @@ static const struct clk clocks[] = {
 	{.id = "psd0",  .bit = P6_SYS_CLK_PSD0,  .offset = PSD_CLK_OFFSET},
 	{.id = "psd1",  .bit = P6_SYS_CLK_PSD1,  .offset = PSD_CLK_OFFSET},
 };
+static DEFINE_SPINLOCK(clk_lock);
 
 static unsigned long get_ahb_clk_p6(void)
 {
@@ -273,7 +275,7 @@ int __init clocks_init_p6(void)
 struct clk *clk_get(struct device *dev, const char *id)
 {
 	int i;
-	const struct clk * clock = ERR_PTR(-ENOENT);
+	struct clk * clock = ERR_PTR(-ENOENT);
 
 	for (i = 0; i < ARRAY_SIZE(clocks); i++) {
 		if (strcmp(clocks[i].id, id) == 0) {
@@ -282,10 +284,7 @@ struct clk *clk_get(struct device *dev, const char *id)
 		}
 	}
 
-	/* cast is needed to remove const qualifier. It is safe to do,
-	 * as nobody touches it
-	 */
-	return (struct clk *)clock;
+	return clock;
 }
 
 void clk_put(struct clk *clk)
@@ -294,19 +293,40 @@ void clk_put(struct clk *clk)
 
 int clk_enable(struct clk *clk)
 {
+	unsigned long flags;
 	if (IS_ERR(clk) || (clk == NULL)) {
 		return -EINVAL;
 	}
-	__raw_writel(clk->bit, PARROT6_VA_SYS + _P6_SYS_CEN + clk->offset);
+
+	/* Enable the clock in HW on first enable. */
+	spin_lock_irqsave(&clk_lock, flags);
+	if (clk->users == 0) {
+		__raw_writel(clk->bit,
+		             PARROT6_VA_SYS + _P6_SYS_CEN + clk->offset);
+	}
+	clk->users++;
+	spin_unlock_irqrestore(&clk_lock, flags);
 	return 0;
 }
 
 void clk_disable(struct clk *clk)
 {
+	unsigned long flags;
 	if (IS_ERR(clk) || (clk == NULL)) {
 		return;
 	}
-	__raw_writel(clk->bit, PARROT6_VA_SYS + _P6_SYS_CDIS + clk->offset);
+	/* Disable clock in HW when count of users reaches 0. */
+	spin_lock_irqsave(&clk_lock, flags);
+	if (clk->users > 0) {
+		clk->users--;
+	} else {
+		WARN_ON(clk->users <= 0);
+	}
+	if (clk->users == 0) {
+		__raw_writel(clk->bit,
+		             PARROT6_VA_SYS + _P6_SYS_CDIS + clk->offset);
+	}
+	spin_unlock_irqrestore(&clk_lock, flags);
 }
 
 unsigned long clk_get_rate(struct clk *clk)

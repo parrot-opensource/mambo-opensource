@@ -17,6 +17,7 @@ source "drivers/parrot/input/Kconfig"
 source "drivers/parrot/char/Kconfig"
 source "drivers/parrot/usb/serial/blackberry/Kconfig"
 source "drivers/parrot/ultra_sound/Kconfig"
+source "drivers/parrot/jpsumo_adc/Kconfig"
 source "drivers/parrot/misc/Kconfig"
 source "drivers/parrot/pressure/Kconfig"
 endmenu

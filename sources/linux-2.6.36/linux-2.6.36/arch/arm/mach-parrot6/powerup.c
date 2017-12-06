@@ -205,10 +205,14 @@ static int powerup_rst_notify_sys(struct notifier_block *this,
 		unsigned long code, void *unused)
 {
 	parrot_init_pin(pins_reboot_pwm_powerup);
-	return 0;
+	return NOTIFY_DONE;
 }
 
 static struct notifier_block powerup_rst_notifier = {
+	.notifier_call = powerup_rst_notify_sys,
+};
+
+static struct notifier_block powerup_panic_notifier = {
 	.notifier_call = powerup_rst_notify_sys,
 };
 
@@ -504,6 +508,8 @@ static void __init powerup_init(void)
 	powerup_reset_pwms();
 	parrot_init_pin(pins_init_pwm_powerup);
 	register_reboot_notifier(&powerup_rst_notifier);
+	atomic_notifier_chain_register(&panic_notifier_list,
+			&powerup_panic_notifier);
 
 	/* ON/OFF P6i output GPIO */
 	if (powerup_hsis_gpio->gpio_POWER_ON_OFF >= 0) {

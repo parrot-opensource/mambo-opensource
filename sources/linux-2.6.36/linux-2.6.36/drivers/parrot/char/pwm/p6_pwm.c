@@ -613,7 +613,8 @@ static int delos_pwm_request(unsigned int timer)
 
 	__raw_writel(0xF, pwm_regbase + P6_PWM_CTL);
 
-	msleep(1000);
+	/* Give the PWM some time to apply the new settings. */
+	msleep(2);
 
 	__raw_writel(0x0, pwm_regbase + P6_PWM_CTL);
 

@@ -104,7 +104,7 @@ int aai_hw_init(struct card_data_t *aai)
     int32_t ipcm;
     struct clk *clock;
 
-    spin_lock(&aai->hwlock);
+    spin_lock_init(&aai->hwlock);
 
     clock = clk_get(NULL, "aai");
     clk_enable(clock);
@@ -127,7 +127,6 @@ int aai_hw_init(struct card_data_t *aai)
         aai->spec_ops->get_volume(&(aai->chans[ipcm]));
     }
 
-    spin_unlock(&aai->hwlock);
     return err;
 }
 
@@ -157,6 +156,7 @@ int aai_hw_remove(struct card_data_t *aai)
 
     clock = clk_get(NULL, "aai");
     clk_disable(clock);
+    clk_put(clock);
 
     spin_unlock(&aai->hwlock);
     return 0;
