@@ -1,5 +1,5 @@
 Open Source Software used in **Parrot Mambo**.  
-Firmware version: **2.6.11**  
+Firmware version: **2.7.10**  
 Unless stated otherwise, later versions of the firmware
 use these same software modules.
 
@@ -14,18 +14,13 @@ You can download Open Source Archives from following table:
 |---|---
 |GPL|[busybox](sources/busybox-unknown)
 |GPL|[yavta](sources/yavta-unknown)
-|GPL2|[e2fsprogs](sources/e2fsprogs-1.42.11)
 |GPL2|[inotify-tools](sources/inotify-tools-3.14)
 |GPL2|[linux](sources/linux-2.6.36)
 |GPL2|[util-linux-ng](sources/util-linux-ng-2.26)
 |GPL3|[dosfstools](sources/dosfstools-3.0.26)
 |LGPL|[libc-arm-2012-03-fix](sources/libc-arm-2012-03-fix-unknown)
 |LGPL|[libconfig](sources/libconfig-1.5)
-|LGPL|[libnl](sources/libnl-3.2.24)
-|LGPL2|[libdaemon](sources/libdaemon-0.14)
 |LGPL2|[libexif](sources/libexif-0.6.21)
-|LGPL2|[libnss-mdns](sources/libnss-mdns-0.10)
-|LGPL2|[libusb](sources/libusb-0.1.12)
 |LGPL2|[util-linux-ng (lib/canonicalize.c)](sources/util-linux-ng-2.26)
 |LGPL2|[util-linux-ng (lib/fileutils.c)](sources/util-linux-ng-2.26)
 |LGPL2|[util-linux-ng (lib/randutils.c)](sources/util-linux-ng-2.26)
