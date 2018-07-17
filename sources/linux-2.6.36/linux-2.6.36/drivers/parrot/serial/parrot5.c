@@ -69,13 +69,16 @@ struct uart_snoop {
 	unsigned int            pos;
 	unsigned int            filter_first;
 	unsigned int            filter_last;
+	int                     pending;
+	int                     synchronized;
+	u64                     nextstamp;
 	u16                     pattern[UART_SNOOP_PATTERN_MAX_LEN];
 	u8                      buffer[UART_SNOOP_PATTERN_MAX_LEN];
 	u32                     version;
 	u8                     *page;
 };
 
-static void parrot5_serial_snoop_match(struct uart_port *port, unsigned char c);
+static int parrot5_serial_snoop_queue(struct uart_port *port, unsigned char c);
 
 /*
  * We wrap our port structure around the generic uart_port.
@@ -163,8 +166,8 @@ static void parrot5_serial_rx_chars(struct uart_port *port, u32 status)
 		if (uart_handle_sysrq_char(port, c & 0xff)) {
 			goto ignore_char;
 		}
-		parrot5_serial_snoop_match(port, c & 0xff);
-		uart_insert_char(port, c, UART_TRX_OVERRUN, c, flag);
+		if (!parrot5_serial_snoop_queue(port, c & 0xff))
+			uart_insert_char(port, c, UART_TRX_OVERRUN, c, flag);
 
 	ignore_char:
 		status = __raw_readl(port->membase+_UART_STATUS);
@@ -746,6 +749,8 @@ static int __init parrot5_serial_console_setup(struct console *co,
  * Field 'version' is incremented each time 'data' is updated;
  * it can be used to get consistent values when mmap() is used.
  */
+static void parrot5_serial_snoop_flush_queue(struct uart_port *port,
+					     struct uart_snoop *sn);
 
 static ssize_t parrot5_serial_snoop_pattern_store(struct device *dev,
 						  struct device_attribute *attr,
@@ -791,6 +796,8 @@ static ssize_t parrot5_serial_snoop_pattern_store(struct device *dev,
 
 	spin_lock_irqsave(&port->lock, flags);
 
+	parrot5_serial_snoop_flush_queue(port, sn);
+	sn->synchronized = 0;
 	sn->version = 0;
 	sn->pos = 0;
 	sn->filter_first = (unsigned int)pos_first;
@@ -910,14 +917,14 @@ static inline int match_byte(const struct uart_snoop *sn, unsigned int n)
 
 
 /* port locked, interrupts locally disabled */
-static void parrot5_serial_snoop_match(struct uart_port *port, unsigned char c)
+static int parrot5_serial_snoop_match(struct uart_port *port, unsigned char c)
 {
 	unsigned int i, pos;
 	struct uart_parrot5_port *up = (struct uart_parrot5_port *)port;
 	struct uart_snoop *sn = &up->snoop;
 
 	if (!sn->length)
-		return;
+		return 0;
 
 	/* first, store current byte */
 	sn->buffer[sn->pos++] = c;
@@ -927,13 +934,13 @@ static void parrot5_serial_snoop_match(struct uart_port *port, unsigned char c)
 	if (!match_byte(sn, sn->filter_first) ||
 	    !match_byte(sn, sn->filter_last))
 		/* mismatch */
-		return;
+		return 0;
 
 	/* slow check: verify rest of pattern */
 	for (i = sn->filter_first+1; i < sn->filter_last; i++)
 		if (!match_byte(sn, i))
 			/* mismatch */
-			return;
+			return 0;
 
 	/* match! */
 	/* if not enough bytes have been seen, we may have a false positive */
@@ -943,6 +950,71 @@ static void parrot5_serial_snoop_match(struct uart_port *port, unsigned char c)
 
 	for (i = 0; i < sn->length; i++)
 		sn->page[sizeof(sn->version)+i] = sn->buffer[POS(pos+i)];
+
+	return 1;
+}
+
+static void parrot5_serial_snoop_flush_queue(struct uart_port *port,
+					     struct uart_snoop *sn)
+{
+	int i, pos, c;
+
+	if (!sn->pending)
+		return;
+
+	pos = POS(sn->pos - sn->pending);
+
+	for (i = 0; i < sn->pending; i++) {
+		c = sn->buffer[POS(pos+i)];
+		uart_insert_char(port, c, UART_TRX_OVERRUN, c, TTY_NORMAL);
+	}
+
+	sn->pending = 0;
+}
+
+static int parrot5_serial_snoop_queue(struct uart_port *port, unsigned char c)
+{
+	u16 pat;
+	int match;
+	u64 timestamp;
+	struct uart_parrot5_port *up = (struct uart_parrot5_port *)port;
+	struct uart_snoop *sn = &up->snoop;
+	const u64 period = CONFIG_SERIAL_PARROT5_SNOOP_FILTER_PERIOD*1000000ULL;
+
+	match = parrot5_serial_snoop_match(port, c);
+
+	if (!period)
+		return 0;
+
+	if (sn->synchronized) {
+		/* keep this byte queued in snoop buffer */
+		pat = sn->pattern[sn->pending++];
+		if ((c & (pat >> 8)) != (pat & 0xff)) {
+			/* mismatch in queue */
+			parrot5_serial_snoop_flush_queue(port, sn);
+			sn->synchronized = 0;
+		}
+	} else {
+		/* we're not synchronized, flush immediately */
+		uart_insert_char(port, c, UART_TRX_OVERRUN, c, TTY_NORMAL);
+	}
+
+	if (sn->pending == sn->length) {
+		/* decide if we should decimate or flush */
+		timestamp = sched_clock();
+		if (timestamp < sn->nextstamp)
+			/* drop frame */
+			sn->pending = 0;
+		else
+			/* keep frame and save next timestamp */
+			sn->nextstamp = timestamp + period;
+		parrot5_serial_snoop_flush_queue(port, sn);
+	}
+
+	if (match)
+		sn->synchronized = 1;
+
+	return 1;
 }
 
 static int parrot5_serial_snoop_probe(struct platform_device *dev)
@@ -996,8 +1068,9 @@ static void parrot5_serial_snoop_remove(struct platform_device *dev)
 
 #else /* !CONFIG_SERIAL_PARROT5_SNOOP */
 
-static void parrot5_serial_snoop_match(struct uart_port *port, unsigned char c)
+static int parrot5_serial_snoop_queue(struct uart_port *port, unsigned char c)
 {
+	return 0;
 }
 
 static int parrot5_serial_snoop_probe(struct platform_device *dev)

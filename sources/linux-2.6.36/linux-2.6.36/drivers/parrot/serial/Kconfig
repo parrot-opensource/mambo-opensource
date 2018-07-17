@@ -25,6 +25,18 @@ config SERIAL_PARROT5_SNOOP
 	  Select this option if you need to extract a pattern from serial port
 	  data. This can be used to trigger actions with a low latency.
 
+if SERIAL_PARROT5_SNOOP
+config SERIAL_PARROT5_SNOOP_FILTER_PERIOD
+	int "Matched pattern filtering period in milliseconds"
+	range 0 1000
+	default 0
+	help
+	  When this value is strictly positive, the snooping pattern is assumed
+	  to repeat itself sequentially. Matched patterns are decimated (not
+	  propagated to userland) so that they are spaced in time by at least
+	  this period; they are still available as matched data.
+endif # SERIAL_PARROT5_SNOOP
+
 config SERIAL_DCC
 	bool "JTAG ICE/ICD DCC serial port emulation support"
 	depends on ARM
