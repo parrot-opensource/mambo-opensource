@@ -33,10 +33,10 @@
  * The latest version is available from http://dotat.at/prog/unifdef
  */
 
-static const char * const copyright[] = {
-    "@(#) Copyright (c) 2002 - 2009 Tony Finch <dot@dotat.at>\n",
-    "$dotat: unifdef/unifdef.c,v 1.190 2009/11/27 17:21:26 fanf2 Exp $",
-};
+/*
+ * @(#) Copyright (c) 2002 - 2009 Tony Finch <dot@dotat.at>
+ * $dotat: unifdef/unifdef.c,v 1.190 2009/11/27 17:21:26 fanf2 Exp $
+ */
 
 /*
  * unifdef - remove ifdef'ed lines
